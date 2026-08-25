@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { BookRecord, LibraryState, ProgressInput } from "./types";
+import type { AnnotationInput, AnnotationRecord, BookNote, BookRecord, LibraryState, ProgressInput } from "./types";
 
 export function isDesktopApp() {
   return "__TAURI_INTERNALS__" in window;
@@ -55,6 +55,42 @@ export async function setBookFinished(bookId: string, finished: boolean): Promis
 
 export async function renameBook(bookId: string, title: string): Promise<BookRecord> {
   return invoke<BookRecord>("rename_book", { bookId, title });
+}
+
+export async function chooseCustomCover(bookId: string): Promise<BookRecord | null> {
+  if (!isDesktopApp()) throw new Error("请在 BookReader 桌面程序中更换封面。");
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title: "选择图书封面",
+    filters: [{ name: "封面图片", extensions: ["jpg", "jpeg", "png", "webp"] }],
+  });
+  if (!selected || Array.isArray(selected)) return null;
+  return invoke<BookRecord>("set_custom_cover", { bookId, sourcePath: selected });
+}
+
+export async function restoreBookCover(bookId: string): Promise<BookRecord> {
+  return invoke<BookRecord>("restore_book_cover", { bookId });
+}
+
+export async function loadAnnotations(bookId: string): Promise<AnnotationRecord[]> {
+  return invoke<AnnotationRecord[]>("list_annotations", { bookId });
+}
+
+export async function saveAnnotation(input: AnnotationInput): Promise<AnnotationRecord> {
+  return invoke<AnnotationRecord>("save_annotation", { input });
+}
+
+export async function removeAnnotation(bookId: string, annotationId: string): Promise<void> {
+  await invoke("delete_annotation", { bookId, annotationId });
+}
+
+export async function loadBookNote(bookId: string): Promise<BookNote> {
+  return invoke<BookNote>("get_book_note", { bookId });
+}
+
+export async function persistBookNote(bookId: string, summary: string): Promise<BookNote> {
+  return invoke<BookNote>("save_book_note", { bookId, summary });
 }
 
 export async function deleteBook(bookId: string): Promise<void> {

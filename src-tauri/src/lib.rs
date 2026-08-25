@@ -4,11 +4,15 @@ use percent_encoding::percent_decode_str;
 use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::hash_map::DefaultHasher,
     fs,
+    hash::{Hash, Hasher},
     io::{Cursor, Read, Seek},
     path::{Component, Path, PathBuf},
+    thread,
+    time::{Duration, SystemTime},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -17,6 +21,8 @@ use zip::ZipArchive;
 struct AppSettings {
     schema_version: u32,
     library_dir: String,
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +38,10 @@ struct BookMetadata {
     imported_at: String,
     source_file_name: String,
     cover_file_name: Option<String>,
+    #[serde(default)]
+    original_cover_file_name: Option<String>,
+    #[serde(default)]
+    cover_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -75,6 +85,44 @@ struct SaveProgressInput {
     percentage: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnnotationRecord {
+    schema_version: u32,
+    id: String,
+    book_id: String,
+    record_type: String,
+    quote: String,
+    reflection: String,
+    chapter_title: String,
+    chapter_href: String,
+    cfi_range: String,
+    created_at: String,
+    updated_at: String,
+    deleted_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveAnnotationInput {
+    id: Option<String>,
+    book_id: String,
+    quote: String,
+    reflection: String,
+    chapter_title: String,
+    chapter_href: String,
+    cfi_range: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BookNoteFile {
+    schema_version: u32,
+    book_id: String,
+    summary: String,
+    updated_at: String,
+}
+
 fn app_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
@@ -98,8 +146,7 @@ fn save_app_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("无法创建设置目录：{error}"))?;
     }
-    let data = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
-    fs::write(path, data).map_err(|error| format!("无法保存设置：{error}"))
+    write_json(&path, settings).map_err(|error| format!("无法保存设置：{error}"))
 }
 
 fn configured_library_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -107,10 +154,24 @@ fn configured_library_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(PathBuf::from(settings.library_dir))
 }
 
+fn configured_device_id(app: &AppHandle) -> Result<String, String> {
+    let mut settings = load_app_settings(app)?.ok_or_else(|| "尚未选择书库目录".to_string())?;
+    if let Some(device_id) = settings.device_id.clone() {
+        return Ok(device_id);
+    }
+    let device_id = Uuid::new_v4().to_string();
+    settings.device_id = Some(device_id.clone());
+    save_app_settings(app, &settings)?;
+    Ok(device_id)
+}
+
 fn initialize_library(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path.join("books")).map_err(|error| format!("无法创建书库目录：{error}"))?;
     fs::create_dir_all(path.join("annotations"))
         .map_err(|error| format!("无法创建批注目录：{error}"))?;
+    fs::create_dir_all(path.join("progress"))
+        .map_err(|error| format!("无法创建进度目录：{error}"))?;
+    fs::create_dir_all(path.join("notes")).map_err(|error| format!("无法创建笔记目录：{error}"))?;
     let version_path = path.join("library-version.json");
     if !version_path.exists() {
         fs::write(version_path, "{\n  \"schemaVersion\": 1\n}\n")
@@ -120,14 +181,50 @@ fn initialize_library(path: &Path) -> Result<(), String> {
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
-    let data = fs::read_to_string(path)
-        .map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
-    serde_json::from_str(&data).map_err(|error| format!("无法解析 {}：{error}", path.display()))
+    let read_and_parse = |candidate: &Path| -> Result<T, String> {
+        let data = fs::read_to_string(candidate)
+            .map_err(|error| format!("无法读取 {}：{error}", candidate.display()))?;
+        serde_json::from_str(&data)
+            .map_err(|error| format!("无法解析 {}：{error}", candidate.display()))
+    };
+    read_and_parse(path).or_else(|primary_error| {
+        let backup = path.with_extension("bak");
+        if backup.exists() {
+            read_and_parse(&backup)
+        } else {
+            Err(primary_error)
+        }
+    })
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let data = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, data).map_err(|error| format!("无法写入 {}：{error}", path.display()))
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
+    }
+    let temporary = path.with_extension(format!("tmp-{}", Uuid::new_v4()));
+    fs::write(&temporary, data)
+        .map_err(|error| format!("无法写入临时文件 {}：{error}", temporary.display()))?;
+    let backup = path.with_extension("bak");
+    if path.exists() {
+        let _ = fs::remove_file(&backup);
+        fs::rename(path, &backup)
+            .map_err(|error| format!("无法备份 {}：{error}", path.display()))?;
+    }
+    match fs::rename(&temporary, path) {
+        // Keep the previous valid JSON beside the new file. OneDrive or an
+        // interrupted write may leave the primary file incomplete later, and
+        // `read_json` can then recover from this last-known-good copy.
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if backup.exists() {
+                let _ = fs::rename(&backup, path);
+            }
+            let _ = fs::remove_file(temporary);
+            Err(format!("无法替换 {}：{error}", path.display()))
+        }
+    }
 }
 
 fn cover_data_url(book_dir: &Path, metadata: &BookMetadata) -> Option<String> {
@@ -150,6 +247,54 @@ fn cover_data_url(book_dir: &Path, metadata: &BookMetadata) -> Option<String> {
     Some(format!("data:{mime};base64,{}", BASE64.encode(data)))
 }
 
+fn latest_progress(library_dir: &Path, book_id: &str) -> ProgressFile {
+    let mut candidates = Vec::new();
+    let legacy_path = library_dir
+        .join("books")
+        .join(book_id)
+        .join("progress.json");
+    if let Ok(progress) = read_json::<ProgressFile>(&legacy_path) {
+        candidates.push(progress);
+    }
+    let progress_dir = library_dir.join("progress").join(book_id);
+    if let Ok(entries) = fs::read_dir(progress_dir) {
+        for entry in entries.flatten() {
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(progress) = read_json::<ProgressFile>(&entry.path()) {
+                candidates.push(progress);
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .max_by(|left, right| left.updated_at.cmp(&right.updated_at))
+        .unwrap_or_default()
+}
+
+fn device_progress_path(library_dir: &Path, book_id: &str, device_id: &str) -> PathBuf {
+    library_dir
+        .join("progress")
+        .join(book_id)
+        .join(format!("{device_id}.json"))
+}
+
+fn book_record(library_dir: &Path, metadata: BookMetadata, progress: ProgressFile) -> BookRecord {
+    let book_dir = library_dir.join("books").join(&metadata.id);
+    BookRecord {
+        id: metadata.id.clone(),
+        title: metadata.title.clone(),
+        author: metadata.author.clone(),
+        progress: progress.percentage.clamp(0.0, 1.0),
+        finished: progress.finished,
+        cover_data_url: cover_data_url(&book_dir, &metadata),
+        cfi: progress.cfi,
+        chapter_href: progress.chapter_href,
+        imported_at: metadata.imported_at,
+    }
+}
+
 fn scan_library_dir(library_dir: &Path) -> Result<Vec<BookRecord>, String> {
     let books_dir = library_dir.join("books");
     if !books_dir.exists() {
@@ -170,19 +315,8 @@ fn scan_library_dir(library_dir: &Path) -> Result<Vec<BookRecord>, String> {
         let Ok(metadata) = read_json::<BookMetadata>(&metadata_path) else {
             continue;
         };
-        let progress =
-            read_json::<ProgressFile>(&book_dir.join("progress.json")).unwrap_or_default();
-        books.push(BookRecord {
-            id: metadata.id.clone(),
-            title: metadata.title.clone(),
-            author: metadata.author.clone(),
-            progress: progress.percentage.clamp(0.0, 1.0),
-            finished: progress.finished,
-            cover_data_url: cover_data_url(&book_dir, &metadata),
-            cfi: progress.cfi,
-            chapter_href: progress.chapter_href,
-            imported_at: metadata.imported_at,
-        });
+        let progress = latest_progress(library_dir, &metadata.id);
+        books.push(book_record(library_dir, metadata, progress));
     }
     books.sort_by(|a, b| b.imported_at.cmp(&a.imported_at));
     Ok(books)
@@ -326,7 +460,9 @@ fn parse_and_extract_epub(
         publisher,
         imported_at: Utc::now().to_rfc3339(),
         source_file_name: source_file_name.to_string(),
+        original_cover_file_name: cover_file_name.clone(),
         cover_file_name,
+        cover_source: Some("epub".to_string()),
     })
 }
 
@@ -351,11 +487,15 @@ fn get_library_state(app: AppHandle) -> Result<LibraryState, String> {
 fn set_library_directory(app: AppHandle, path: String) -> Result<LibraryState, String> {
     let library_dir = PathBuf::from(path);
     initialize_library(&library_dir)?;
+    let device_id = load_app_settings(&app)?
+        .and_then(|settings| settings.device_id)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     save_app_settings(
         &app,
         &AppSettings {
             schema_version: 1,
             library_dir: library_dir.to_string_lossy().to_string(),
+            device_id: Some(device_id),
         },
     )?;
     let books = scan_library_dir(&library_dir)?;
@@ -376,6 +516,7 @@ fn import_epub_blocking(app: &AppHandle, source_path: String) -> Result<BookReco
         return Err("请选择有效的 .epub 文件".to_string());
     }
     let library_dir = configured_library_dir(&app)?;
+    let device_id = configured_device_id(app)?;
     initialize_library(&library_dir)?;
     let id = Uuid::new_v4().to_string();
     let book_dir = library_dir.join("books").join(&id);
@@ -400,7 +541,10 @@ fn import_epub_blocking(app: &AppHandle, source_path: String) -> Result<BookReco
             finished: false,
             updated_at: Utc::now().to_rfc3339(),
         };
-        write_json(&book_dir.join("progress.json"), &progress)?;
+        write_json(
+            &device_progress_path(&library_dir, &id, &device_id),
+            &progress,
+        )?;
         Ok::<_, String>((metadata, progress))
     })();
 
@@ -412,18 +556,7 @@ fn import_epub_blocking(app: &AppHandle, source_path: String) -> Result<BookReco
         }
     };
 
-    let extracted_cover = cover_data_url(&book_dir, &metadata);
-    Ok(BookRecord {
-        id: metadata.id.clone(),
-        title: metadata.title,
-        author: metadata.author,
-        progress: progress.percentage,
-        finished: progress.finished,
-        cover_data_url: extracted_cover,
-        cfi: None,
-        chapter_href: None,
-        imported_at: metadata.imported_at,
-    })
+    Ok(book_record(&library_dir, metadata, progress))
 }
 
 #[tauri::command]
@@ -447,10 +580,10 @@ fn set_book_finished(
 ) -> Result<BookRecord, String> {
     validate_book_id(&book_id)?;
     let library_dir = configured_library_dir(&app)?;
+    let device_id = configured_device_id(&app)?;
     let book_dir = library_dir.join("books").join(&book_id);
     let metadata = read_json::<BookMetadata>(&book_dir.join("metadata.json"))?;
-    let mut progress =
-        read_json::<ProgressFile>(&book_dir.join("progress.json")).unwrap_or_default();
+    let mut progress = latest_progress(&library_dir, &book_id);
     progress.schema_version = 1;
     progress.finished = finished;
     progress.percentage = if finished { 1.0 } else { 0.0 };
@@ -459,18 +592,11 @@ fn set_book_finished(
         progress.chapter_href = None;
     }
     progress.updated_at = Utc::now().to_rfc3339();
-    write_json(&book_dir.join("progress.json"), &progress)?;
-    Ok(BookRecord {
-        id: metadata.id.clone(),
-        title: metadata.title.clone(),
-        author: metadata.author.clone(),
-        progress: progress.percentage,
-        finished: progress.finished,
-        cover_data_url: cover_data_url(&book_dir, &metadata),
-        cfi: progress.cfi,
-        chapter_href: progress.chapter_href,
-        imported_at: metadata.imported_at,
-    })
+    write_json(
+        &device_progress_path(&library_dir, &book_id, &device_id),
+        &progress,
+    )?;
+    Ok(book_record(&library_dir, metadata, progress))
 }
 
 #[tauri::command]
@@ -488,32 +614,34 @@ fn rename_book(app: AppHandle, book_id: String, title: String) -> Result<BookRec
     let book_dir = library_dir.join("books").join(&book_id);
     let metadata_path = book_dir.join("metadata.json");
     let mut metadata = read_json::<BookMetadata>(&metadata_path)?;
-    let progress = read_json::<ProgressFile>(&book_dir.join("progress.json")).unwrap_or_default();
+    let progress = latest_progress(&library_dir, &book_id);
     metadata.title = title.to_string();
     write_json(&metadata_path, &metadata)?;
 
-    Ok(BookRecord {
-        id: metadata.id.clone(),
-        title: metadata.title.clone(),
-        author: metadata.author.clone(),
-        progress: progress.percentage,
-        finished: progress.finished,
-        cover_data_url: cover_data_url(&book_dir, &metadata),
-        cfi: progress.cfi,
-        chapter_href: progress.chapter_href,
-        imported_at: metadata.imported_at,
-    })
+    Ok(book_record(&library_dir, metadata, progress))
 }
 
 #[tauri::command]
 fn delete_book(app: AppHandle, book_id: String) -> Result<(), String> {
     validate_book_id(&book_id)?;
     let library_dir = configured_library_dir(&app)?;
-    let book_dir = library_dir.join("books").join(book_id);
+    let book_dir = library_dir.join("books").join(&book_id);
     if !book_dir.exists() {
         return Err("图书不存在或已经被删除".to_string());
     }
-    fs::remove_dir_all(book_dir).map_err(|error| format!("无法删除图书：{error}"))
+    fs::remove_dir_all(book_dir).map_err(|error| format!("无法删除图书：{error}"))?;
+    for related in ["progress", "annotations"] {
+        let path = library_dir.join(related).join(&book_id);
+        if path.exists() {
+            fs::remove_dir_all(path)
+                .map_err(|error| format!("无法删除图书{related}数据：{error}"))?;
+        }
+    }
+    let note_path = library_dir.join("notes").join(format!("{book_id}.json"));
+    if note_path.exists() {
+        fs::remove_file(note_path).map_err(|error| format!("无法删除整书笔记：{error}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -526,11 +654,10 @@ fn read_book_base64(app: AppHandle, book_id: String) -> Result<String, String> {
 
 #[tauri::command]
 fn save_progress(app: AppHandle, input: SaveProgressInput) -> Result<(), String> {
+    validate_book_id(&input.book_id)?;
     let library_dir = configured_library_dir(&app)?;
-    let path = library_dir
-        .join("books")
-        .join(&input.book_id)
-        .join("progress.json");
+    let device_id = configured_device_id(&app)?;
+    let path = device_progress_path(&library_dir, &input.book_id, &device_id);
     let progress = ProgressFile {
         schema_version: 1,
         cfi: input.cfi,
@@ -542,10 +669,248 @@ fn save_progress(app: AppHandle, input: SaveProgressInput) -> Result<(), String>
     write_json(&path, &progress)
 }
 
+#[tauri::command]
+fn list_annotations(app: AppHandle, book_id: String) -> Result<Vec<AnnotationRecord>, String> {
+    validate_book_id(&book_id)?;
+    let directory = configured_library_dir(&app)?
+        .join("annotations")
+        .join(&book_id);
+    let mut records = Vec::new();
+    if let Ok(entries) = fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(record) = read_json::<AnnotationRecord>(&entry.path()) {
+                if record.deleted_at.is_none() {
+                    records.push(record);
+                }
+            }
+        }
+    }
+    records.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+    Ok(records)
+}
+
+#[tauri::command]
+fn save_annotation(app: AppHandle, input: SaveAnnotationInput) -> Result<AnnotationRecord, String> {
+    validate_book_id(&input.book_id)?;
+    if input.quote.trim().is_empty() || input.cfi_range.trim().is_empty() {
+        return Err("高亮原文和位置不能为空".to_string());
+    }
+    let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    validate_book_id(&id)?;
+    let directory = configured_library_dir(&app)?
+        .join("annotations")
+        .join(&input.book_id);
+    let path = directory.join(format!("{id}.json"));
+    let existing = read_json::<AnnotationRecord>(&path).ok();
+    let now = Utc::now().to_rfc3339();
+    let record = AnnotationRecord {
+        schema_version: 1,
+        id,
+        book_id: input.book_id,
+        record_type: "quote-note".to_string(),
+        quote: input.quote.trim().to_string(),
+        reflection: input.reflection.trim().to_string(),
+        chapter_title: input.chapter_title.trim().to_string(),
+        chapter_href: input.chapter_href,
+        cfi_range: input.cfi_range,
+        created_at: existing
+            .as_ref()
+            .map(|record| record.created_at.clone())
+            .unwrap_or_else(|| now.clone()),
+        updated_at: now,
+        deleted_at: None,
+    };
+    write_json(&path, &record)?;
+    Ok(record)
+}
+
+#[tauri::command]
+fn delete_annotation(app: AppHandle, book_id: String, annotation_id: String) -> Result<(), String> {
+    validate_book_id(&book_id)?;
+    validate_book_id(&annotation_id)?;
+    let path = configured_library_dir(&app)?
+        .join("annotations")
+        .join(book_id)
+        .join(format!("{annotation_id}.json"));
+    let mut record = read_json::<AnnotationRecord>(&path)?;
+    let now = Utc::now().to_rfc3339();
+    record.updated_at = now.clone();
+    record.deleted_at = Some(now);
+    write_json(&path, &record)
+}
+
+#[tauri::command]
+fn get_book_note(app: AppHandle, book_id: String) -> Result<BookNoteFile, String> {
+    validate_book_id(&book_id)?;
+    let path = configured_library_dir(&app)?
+        .join("notes")
+        .join(format!("{book_id}.json"));
+    read_json::<BookNoteFile>(&path).or_else(|_| {
+        Ok(BookNoteFile {
+            schema_version: 1,
+            book_id,
+            summary: String::new(),
+            updated_at: String::new(),
+        })
+    })
+}
+
+#[tauri::command]
+fn save_book_note(
+    app: AppHandle,
+    book_id: String,
+    summary: String,
+) -> Result<BookNoteFile, String> {
+    validate_book_id(&book_id)?;
+    let note = BookNoteFile {
+        schema_version: 1,
+        book_id: book_id.clone(),
+        summary,
+        updated_at: Utc::now().to_rfc3339(),
+    };
+    let path = configured_library_dir(&app)?
+        .join("notes")
+        .join(format!("{book_id}.json"));
+    write_json(&path, &note)?;
+    Ok(note)
+}
+
+fn save_binary(path: &Path, data: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
+    }
+    let temporary = path.with_extension(format!("tmp-{}", Uuid::new_v4()));
+    fs::write(&temporary, data).map_err(|error| format!("无法保存图片：{error}"))?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|error| format!("无法替换旧封面：{error}"))?;
+    }
+    fs::rename(temporary, path).map_err(|error| format!("无法启用新封面：{error}"))
+}
+
+#[tauri::command]
+fn set_custom_cover(
+    app: AppHandle,
+    book_id: String,
+    source_path: String,
+) -> Result<BookRecord, String> {
+    validate_book_id(&book_id)?;
+    let source = PathBuf::from(source_path);
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|value| matches!(value.as_str(), "jpg" | "jpeg" | "png" | "webp"))
+        .ok_or_else(|| "请选择 JPG、PNG 或 WebP 图片".to_string())?;
+    let data = fs::read(&source).map_err(|error| format!("无法读取封面图片：{error}"))?;
+    let library_dir = configured_library_dir(&app)?;
+    let book_dir = library_dir.join("books").join(&book_id);
+    let metadata_path = book_dir.join("metadata.json");
+    let mut metadata = read_json::<BookMetadata>(&metadata_path)?;
+    if metadata.original_cover_file_name.is_none() {
+        metadata.original_cover_file_name = metadata
+            .cover_file_name
+            .clone()
+            .filter(|name| !name.starts_with("custom-cover."));
+    }
+    let file_name = format!("custom-cover.{extension}");
+    save_binary(&book_dir.join(&file_name), &data)?;
+    metadata.cover_file_name = Some(file_name);
+    metadata.cover_source = Some("custom".to_string());
+    write_json(&metadata_path, &metadata)?;
+    let progress = latest_progress(&library_dir, &book_id);
+    Ok(book_record(&library_dir, metadata, progress))
+}
+
+#[tauri::command]
+fn restore_book_cover(app: AppHandle, book_id: String) -> Result<BookRecord, String> {
+    validate_book_id(&book_id)?;
+    let library_dir = configured_library_dir(&app)?;
+    let book_dir = library_dir.join("books").join(&book_id);
+    let metadata_path = book_dir.join("metadata.json");
+    let mut metadata = read_json::<BookMetadata>(&metadata_path)?;
+    let original = metadata
+        .original_cover_file_name
+        .clone()
+        .filter(|name| book_dir.join(name).is_file());
+    metadata.cover_file_name = original;
+    metadata.cover_source = Some(if metadata.cover_file_name.is_some() {
+        "epub".to_string()
+    } else {
+        "generated".to_string()
+    });
+    write_json(&metadata_path, &metadata)?;
+    let progress = latest_progress(&library_dir, &book_id);
+    Ok(book_record(&library_dir, metadata, progress))
+}
+
+fn fingerprint_path(path: &Path, hasher: &mut DefaultHasher) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return;
+    };
+    path.to_string_lossy().hash(hasher);
+    metadata.len().hash(hasher);
+    metadata
+        .modified()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .hash(hasher);
+    if metadata.is_dir() {
+        let Ok(entries) = fs::read_dir(path) else {
+            return;
+        };
+        let mut paths: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+        paths.sort();
+        for child in paths {
+            let name = child
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("");
+            if name.contains(".tmp-") || name.ends_with(".bak") {
+                continue;
+            }
+            fingerprint_path(&child, hasher);
+        }
+    }
+}
+
+fn library_fingerprint(app: &AppHandle) -> u64 {
+    let Ok(Some(settings)) = load_app_settings(app) else {
+        return 0;
+    };
+    let mut hasher = DefaultHasher::new();
+    settings.library_dir.hash(&mut hasher);
+    fingerprint_path(Path::new(&settings.library_dir), &mut hasher);
+    hasher.finish()
+}
+
+fn start_library_watcher(app: AppHandle) {
+    thread::spawn(move || {
+        let mut previous = library_fingerprint(&app);
+        loop {
+            thread::sleep(Duration::from_millis(900));
+            let current = library_fingerprint(&app);
+            if current != 0 && current != previous {
+                previous = current;
+                let _ = app.emit("library-changed", ());
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            start_library_watcher(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_library_state,
             set_library_directory,
@@ -554,7 +919,14 @@ pub fn run() {
             save_progress,
             set_book_finished,
             rename_book,
-            delete_book
+            delete_book,
+            list_annotations,
+            save_annotation,
+            delete_annotation,
+            get_book_note,
+            save_book_note,
+            set_custom_cover,
+            restore_book_cover
         ])
         .run(tauri::generate_context!())
         .expect("error while running BookReader");
@@ -603,6 +975,67 @@ mod tests {
         assert_eq!(metadata.cover_file_name.as_deref(), Some("cover.png"));
         assert!(book_dir.join("cover.png").exists());
 
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[test]
+    fn reads_backup_when_primary_json_is_incomplete() {
+        let test_root = std::env::temp_dir().join(format!("bookreader-json-{}", Uuid::new_v4()));
+        fs::create_dir_all(&test_root).unwrap();
+        let path = test_root.join("progress.json");
+        let backup = path.with_extension("bak");
+        let expected = ProgressFile {
+            schema_version: 1,
+            cfi: Some("epubcfi(/6/2)".to_string()),
+            chapter_href: Some("chapter.xhtml".to_string()),
+            percentage: 0.42,
+            finished: false,
+            updated_at: "2026-08-25T10:00:00Z".to_string(),
+        };
+        write_json(&path, &expected).unwrap();
+        let newer = ProgressFile {
+            percentage: 0.63,
+            updated_at: "2026-08-25T11:00:00Z".to_string(),
+            ..expected.clone()
+        };
+        write_json(&path, &newer).unwrap();
+        assert!(backup.exists());
+        fs::write(&path, "{ incomplete").unwrap();
+        let recovered = read_json::<ProgressFile>(&path).unwrap();
+        assert_eq!(recovered.cfi, expected.cfi);
+        assert_eq!(recovered.percentage, 0.42);
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[test]
+    fn newest_device_progress_wins_automatically() {
+        let test_root =
+            std::env::temp_dir().join(format!("bookreader-progress-{}", Uuid::new_v4()));
+        let book_id = Uuid::new_v4().to_string();
+        initialize_library(&test_root).unwrap();
+        let older = ProgressFile {
+            schema_version: 1,
+            percentage: 0.21,
+            updated_at: "2026-08-25T08:00:00Z".to_string(),
+            ..ProgressFile::default()
+        };
+        let newer = ProgressFile {
+            schema_version: 1,
+            percentage: 0.63,
+            updated_at: "2026-08-25T09:00:00Z".to_string(),
+            ..ProgressFile::default()
+        };
+        write_json(
+            &device_progress_path(&test_root, &book_id, "desktop"),
+            &older,
+        )
+        .unwrap();
+        write_json(
+            &device_progress_path(&test_root, &book_id, "laptop"),
+            &newer,
+        )
+        .unwrap();
+        assert_eq!(latest_progress(&test_root, &book_id).percentage, 0.63);
         fs::remove_dir_all(test_root).unwrap();
     }
 }

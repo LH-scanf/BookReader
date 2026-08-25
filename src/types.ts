@@ -26,3 +26,35 @@ export type ProgressInput = {
   chapterHref: string | null;
   percentage: number;
 };
+
+export type AnnotationRecord = {
+  schemaVersion: number;
+  id: string;
+  bookId: string;
+  recordType: "quote-note";
+  quote: string;
+  reflection: string;
+  chapterTitle: string;
+  chapterHref: string;
+  cfiRange: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type AnnotationInput = {
+  id?: string;
+  bookId: string;
+  quote: string;
+  reflection: string;
+  chapterTitle: string;
+  chapterHref: string;
+  cfiRange: string;
+};
+
+export type BookNote = {
+  schemaVersion: number;
+  bookId: string;
+  summary: string;
+  updatedAt: string;
+};

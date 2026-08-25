@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Library,
+  ImageIcon,
   Menu,
   MoreHorizontal,
   PanelLeftClose,
@@ -13,10 +14,12 @@ import {
   Settings,
   SlidersHorizontal,
   Trash2,
+  RotateCcw,
   X,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { chooseAndImportEpubs, chooseLibraryDirectory, deleteBook, loadLibrary, renameBook, setBookFinished } from "./library-api";
+import { listen } from "@tauri-apps/api/event";
+import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, loadLibrary, renameBook, restoreBookCover, setBookFinished } from "./library-api";
 import type { BookRecord, LibraryFilter, LibraryState, View } from "./types";
 
 const EpubReader = lazy(() => import("./EpubReader"));
@@ -41,6 +44,33 @@ function App() {
       .then(setLibrary)
       .catch((reason) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    let disposed = false;
+    let timer: number | null = null;
+    let unlisten: (() => void) | undefined;
+    void listen("library-changed", () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void loadLibrary().then((next) => {
+          if (disposed) return;
+          setLibrary(next);
+          setActiveBook((current) => {
+            if (!current) return null;
+            return next.books.find((book) => book.id === current.id) ?? current;
+          });
+        }).catch((reason) => {
+          if (!disposed) setMessage(reason instanceof Error ? reason.message : String(reason));
+        });
+      }, 350);
+    }).then((cleanup) => { unlisten = cleanup; });
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+      unlisten?.();
+    };
   }, []);
 
   const selectLibrary = async () => {
@@ -125,6 +155,37 @@ function App() {
     }
   };
 
+  const changeBookCover = async (book: BookRecord) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await chooseCustomCover(book.id);
+      if (updated) {
+        setLibrary((current) => ({ ...current, books: current.books.map((item) => item.id === updated.id ? updated : item) }));
+        setActiveBook((current) => current?.id === updated.id ? updated : current);
+        setMessage(`已更换《${updated.title}》的封面`);
+      }
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetBookCover = async (book: BookRecord) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await restoreBookCover(book.id);
+      setLibrary((current) => ({ ...current, books: current.books.map((item) => item.id === updated.id ? updated : item) }));
+      setMessage(`已恢复《${updated.title}》的自动封面`);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (view === "reader" && activeBook) {
     return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} onBack={() => setView("library")} onProgress={updateProgress} /></Suspense>;
   }
@@ -157,7 +218,7 @@ function App() {
         ) : !library.libraryDir ? (
           <LibrarySetup busy={busy} onSelect={selectLibrary} />
         ) : (
-          <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setView("reader"); }} />
+          <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setView("reader"); }} />
         )}
       </main>
     </div>
@@ -179,7 +240,7 @@ function LibrarySetup({ busy, onSelect }: { busy: boolean; onSelect: () => void 
 
 type SortMode = "recent" | "title-asc" | "title-desc";
 
-function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBook, onRename, onSetFinished, onDelete }: {
+function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBook, onRename, onChangeCover, onRestoreCover, onSetFinished, onDelete }: {
   filter: LibraryFilter;
   search: string;
   books: BookRecord[];
@@ -188,6 +249,8 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
   onImport: () => void;
   onOpenBook: (book: BookRecord) => void;
   onRename: (book: BookRecord, title: string) => void;
+  onChangeCover: (book: BookRecord) => void;
+  onRestoreCover: (book: BookRecord) => void;
   onSetFinished: (book: BookRecord) => void;
   onDelete: (book: BookRecord) => void;
 }) {
@@ -258,7 +321,7 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
       <section className="book-section">
         <div className="section-heading"><h2>{search ? `“${search}”的搜索结果` : filter === "finished" ? "读完的书" : "全部图书"}</h2><div className="sort-control"><button className={`quiet-button ${sortOpen ? "active" : ""}`} aria-haspopup="menu" aria-expanded={sortOpen} onClick={() => { setSortOpen((value) => !value); setMenuBookId(null); }}><SlidersHorizontal size={16} />{sortLabel}</button>{sortOpen && <div className="context-menu sort-menu" role="menu"><button className={sortMode === "recent" ? "selected" : ""} onClick={() => { setSortMode("recent"); closeMenus(); }}>最近导入</button><button className={sortMode === "title-asc" ? "selected" : ""} onClick={() => { setSortMode("title-asc"); closeMenus(); }}>书名 A–Z</button><button className={sortMode === "title-desc" ? "selected" : ""} onClick={() => { setSortMode("title-desc"); closeMenus(); }}>书名 Z–A</button></div>}</div></div>
         {visibleBooks.length ? (
-          <div className="book-grid">{visibleBooks.map((book) => <BookCard key={book.id} book={book} menuOpen={menuBookId === book.id} onToggleMenu={() => { setMenuBookId((current) => current === book.id ? null : book.id); setSortOpen(false); }} onOpen={() => { closeMenus(); onOpenBook(book); }} onRename={() => beginRename(book)} onSetFinished={() => { closeMenus(); onSetFinished(book); }} onDelete={() => { closeMenus(); onDelete(book); }} />)}</div>
+          <div className="book-grid">{visibleBooks.map((book) => <BookCard key={book.id} book={book} menuOpen={menuBookId === book.id} onToggleMenu={() => { setMenuBookId((current) => current === book.id ? null : book.id); setSortOpen(false); }} onOpen={() => { closeMenus(); onOpenBook(book); }} onRename={() => beginRename(book)} onChangeCover={() => { closeMenus(); onChangeCover(book); }} onRestoreCover={() => { closeMenus(); onRestoreCover(book); }} onSetFinished={() => { closeMenus(); onSetFinished(book); }} onDelete={() => { closeMenus(); onDelete(book); }} />)}</div>
         ) : (
           <div className="empty-state"><BookMarked size={28} /><h3>{books.length ? "没有找到图书" : "书库还是空的"}</h3><p>{books.length ? "尝试更换搜索词。" : "点击右上角的“导入图书”，选择一个或多个 EPUB 文件。"}</p>{!books.length && <button className="secondary-button" onClick={onImport}>导入第一本书</button>}</div>
         )}
@@ -285,11 +348,11 @@ function Cover({ book, mini = false }: { book: BookRecord; mini?: boolean }) {
   return <div className={`book-cover ${variant}`}><span className="cover-title">{book.title}</span><span className="cover-subtitle">BookReader 文字封面</span><span className="cover-author">{book.author}</span></div>;
 }
 
-function BookCard({ book, menuOpen, onToggleMenu, onOpen, onRename, onSetFinished, onDelete }: { book: BookRecord; menuOpen: boolean; onToggleMenu: () => void; onOpen: () => void; onRename: () => void; onSetFinished: () => void; onDelete: () => void }) {
+function BookCard({ book, menuOpen, onToggleMenu, onOpen, onRename, onChangeCover, onRestoreCover, onSetFinished, onDelete }: { book: BookRecord; menuOpen: boolean; onToggleMenu: () => void; onOpen: () => void; onRename: () => void; onChangeCover: () => void; onRestoreCover: () => void; onSetFinished: () => void; onDelete: () => void }) {
   const percent = Math.round(book.progress * 100);
   return (
     <article className="book-card" onClick={onOpen} tabIndex={0} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-      <div className="cover-with-menu"><Cover book={book} /><button className="book-menu" aria-label={`${book.title}的更多操作`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}><MoreHorizontal size={18} /></button>{menuOpen && <div className="context-menu book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button><button onClick={onRename}><Pencil size={16} />重命名</button><button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button><div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
+      <div className="cover-with-menu"><Cover book={book} /><button className="book-menu" aria-label={`${book.title}的更多操作`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}><MoreHorizontal size={18} /></button>{menuOpen && <div className="context-menu book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button><button onClick={onRename}><Pencil size={16} />重命名</button><button onClick={onChangeCover}><ImageIcon size={16} />更换封面</button><button onClick={onRestoreCover}><RotateCcw size={16} />恢复自动封面</button><button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button><div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
       <div className="book-meta"><h3>{book.title}</h3><p>{book.author}</p></div>
       <div className="card-progress"><span style={{ width: `${percent}%` }} /></div>
       <div className="progress-label"><span>{book.finished ? "已读" : percent ? `已阅读 ${percent}%` : "未读"}</span></div>
