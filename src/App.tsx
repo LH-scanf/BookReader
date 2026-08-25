@@ -5,11 +5,14 @@ import {
   ChevronRight,
   Library,
   ImageIcon,
+  Highlighter,
   Menu,
   MoreHorizontal,
+  NotebookPen,
   PanelLeftClose,
   Pencil,
   Plus,
+  Save,
   Search,
   Settings,
   SlidersHorizontal,
@@ -17,10 +20,10 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, loadLibrary, renameBook, restoreBookCover, setBookFinished } from "./library-api";
-import type { BookRecord, LibraryFilter, LibraryState, View } from "./types";
+import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
+import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 
 const EpubReader = lazy(() => import("./EpubReader"));
 
@@ -30,6 +33,8 @@ function App() {
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [search, setSearch] = useState("");
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null);
+  const [readerTargetCfi, setReaderTargetCfi] = useState<string | null>(null);
+  const [notesBookId, setNotesBookId] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryState>({ libraryDir: null, books: [] });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -187,7 +192,7 @@ function App() {
   };
 
   if (view === "reader" && activeBook) {
-    return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} onBack={() => setView("library")} onProgress={updateProgress} /></Suspense>;
+    return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} initialPreviewCfi={readerTargetCfi} onBack={() => { setReaderTargetCfi(null); setView("library"); }} onOpenNotes={() => { setReaderTargetCfi(null); setNotesBookId(activeBook.id); setView("notes"); }} onProgress={updateProgress} /></Suspense>;
   }
 
   return (
@@ -201,6 +206,7 @@ function App() {
         <nav className="sidebar-nav" aria-label="书库导航">
           <button className={view === "library" && filter === "all" ? "active" : ""} onClick={() => { setView("library"); setFilter("all"); }}><Library size={18} /><span>我的书库</span></button>
           <button className={view === "library" && filter === "finished" ? "active" : ""} onClick={() => { setView("library"); setFilter("finished"); }}><CheckCircle2 size={18} /><span>已读</span></button>
+          <button className={view === "notes" ? "active" : ""} onClick={() => setView("notes")}><NotebookPen size={18} /><span>整书笔记</span></button>
         </nav>
         <div className="sidebar-footer">
           <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}><Settings size={18} /><span>设置</span></button>
@@ -217,8 +223,10 @@ function App() {
           <div className="page-loading"><span className="loading-spinner" />正在读取书库…</div>
         ) : !library.libraryDir ? (
           <LibrarySetup busy={busy} onSelect={selectLibrary} />
+        ) : view === "notes" ? (
+          <NotesWorkspace books={library.books} initialBookId={notesBookId} onMessage={setMessage} onOpenQuote={(book, cfi) => { setActiveBook(book); setReaderTargetCfi(cfi); setNotesBookId(book.id); setView("reader"); }} />
         ) : (
-          <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setView("reader"); }} />
+          <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
         )}
       </main>
     </div>
@@ -357,6 +365,115 @@ function BookCard({ book, menuOpen, onToggleMenu, onOpen, onRename, onChangeCove
       <div className="card-progress"><span style={{ width: `${percent}%` }} /></div>
       <div className="progress-label"><span>{book.finished ? "已读" : percent ? `已阅读 ${percent}%` : "未读"}</span></div>
     </article>
+  );
+}
+
+function NotesWorkspace({ books, initialBookId, onMessage, onOpenQuote }: {
+  books: BookRecord[];
+  initialBookId: string | null;
+  onMessage: (message: string | null) => void;
+  onOpenQuote: (book: BookRecord, cfi: string | null) => void;
+}) {
+  const [selectedId, setSelectedId] = useState(() => initialBookId ?? books[0]?.id ?? null);
+  const [note, setNote] = useState<BookNote | null>(null);
+  const [summary, setSummary] = useState("");
+  const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
+  const [reflectionDrafts, setReflectionDrafts] = useState<Record<string, string>>({});
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const selectedBook = books.find((book) => book.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (initialBookId && books.some((book) => book.id === initialBookId)) setSelectedId(initialBookId);
+    else if (!selectedId || !books.some((book) => book.id === selectedId)) setSelectedId(books[0]?.id ?? null);
+  }, [books, initialBookId, selectedId]);
+
+  const refresh = useCallback(async () => {
+    if (!selectedId) { setNote(null); setSummary(""); setAnnotations([]); return; }
+    setLoadingNotes(true);
+    try {
+      const [nextAnnotations, nextNote] = await Promise.all([loadAnnotations(selectedId), loadBookNote(selectedId)]);
+      setAnnotations(nextAnnotations);
+      setNote(nextNote);
+      setSummary(nextNote.summary);
+      setReflectionDrafts(Object.fromEntries(nextAnnotations.map((record) => [record.id, record.reflection])));
+    } catch (reason) {
+      onMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoadingNotes(false);
+    }
+  }, [onMessage, selectedId]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    let timer: number | null = null;
+    let unlisten: (() => void) | undefined;
+    void listen("library-changed", () => {
+      if (timer) clearTimeout(timer);
+      timer = window.setTimeout(() => void refresh(), 450);
+    }).then((cleanup) => { unlisten = cleanup; });
+    return () => { if (timer) clearTimeout(timer); unlisten?.(); };
+  }, [refresh]);
+
+  const saveSummary = async () => {
+    if (!selectedId) return;
+    setSavingId("summary");
+    try {
+      const saved = await persistBookNote(selectedId, summary);
+      setNote(saved);
+      onMessage("整书总结已保存");
+    } catch (reason) { onMessage(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setSavingId(null); }
+  };
+
+  const saveReflection = async (record: AnnotationRecord) => {
+    setSavingId(record.id);
+    try {
+      const saved = await saveAnnotation({
+        id: record.id,
+        bookId: record.bookId,
+        quote: record.quote,
+        reflection: reflectionDrafts[record.id] ?? "",
+        chapterTitle: record.chapterTitle,
+        chapterHref: record.chapterHref,
+        cfiRange: record.cfiRange,
+      });
+      setAnnotations((current) => current.map((item) => item.id === saved.id ? saved : item));
+      onMessage("感悟已保存");
+    } catch (reason) { onMessage(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setSavingId(null); }
+  };
+
+  const deleteRecord = async (record: AnnotationRecord) => {
+    if (!window.confirm("确定删除这条高亮和感悟吗？")) return;
+    setSavingId(record.id);
+    try {
+      await removeAnnotation(record.bookId, record.id);
+      setAnnotations((current) => current.filter((item) => item.id !== record.id));
+      onMessage("高亮和感悟已删除");
+    } catch (reason) { onMessage(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setSavingId(null); }
+  };
+
+  return (
+    <div className="notes-workspace-page">
+      <header className="notes-workspace-header"><div><p className="eyebrow">阅读与思考</p><h1>整书笔记</h1><p>每本书的总结、摘录和感悟都集中在这里，可随时编辑。</p></div></header>
+      {!books.length ? <div className="empty-state"><NotebookPen size={28} /><h3>还没有可记录的图书</h3><p>导入一本 EPUB 并开始阅读后，就可以建立整书笔记。</p></div> : (
+        <div className="notes-workspace">
+          <aside className="notes-book-list" aria-label="选择图书">
+            {books.map((book) => <button key={book.id} className={selectedId === book.id ? "active" : ""} onClick={() => setSelectedId(book.id)}><Cover book={book} mini /><span><strong>{book.title}</strong><small>{book.author}</small></span></button>)}
+          </aside>
+          <section className="notes-editor">
+            {loadingNotes || !selectedBook || !note ? <div className="notes-loading"><span className="loading-spinner" />正在读取笔记…</div> : <>
+              <div className="notes-editor-title"><div><span>当前图书</span><h2>{selectedBook.title}</h2><p>{selectedBook.author} · {annotations.length} 条摘录</p></div><button className="secondary-button" onClick={() => onOpenQuote(selectedBook, null)}><BookOpen size={16} />打开图书</button></div>
+              <label className="notes-summary-editor"><span>读后总结</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="记录你对整本书的理解、问题和收获……" /><button className="primary-button" disabled={savingId === "summary" || summary === note.summary} onClick={() => void saveSummary()}><Save size={15} />{savingId === "summary" ? "保存中…" : "保存总结"}</button></label>
+              <div className="notes-records"><div className="notes-records-heading"><h3>原文与感悟</h3><span>{annotations.length} 条</span></div>{annotations.length ? annotations.map((record) => <article key={record.id} className="notes-record-card"><button className="notes-original" onClick={() => onOpenQuote(selectedBook, record.cfiRange)}><Highlighter size={17} /><blockquote>{record.quote}</blockquote><span>回到原文</span></button><label><span>我的感悟</span><textarea value={reflectionDrafts[record.id] ?? ""} onChange={(event) => setReflectionDrafts((current) => ({ ...current, [record.id]: event.target.value }))} placeholder="写下对这段原文的理解……" /></label><footer><small>{record.chapterTitle || record.chapterHref}</small><div><button className="quiet-button destructive-text" disabled={savingId === record.id} onClick={() => void deleteRecord(record)}><Trash2 size={14} />删除</button><button className="secondary-button" disabled={savingId === record.id || (reflectionDrafts[record.id] ?? "") === record.reflection} onClick={() => void saveReflection(record)}><Save size={14} />{savingId === record.id ? "保存中…" : "保存感悟"}</button></div></footer></article>) : <div className="notes-empty-large"><Highlighter size={24} /><p>还没有摘录。阅读时选中一段正文，即可添加高亮或记录感悟。</p></div>}</div>
+            </>}
+          </section>
+        </div>
+      )}
+    </div>
   );
 }
 

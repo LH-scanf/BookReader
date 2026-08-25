@@ -247,6 +247,42 @@ fn cover_data_url(book_dir: &Path, metadata: &BookMetadata) -> Option<String> {
     Some(format!("data:{mime};base64,{}", BASE64.encode(data)))
 }
 
+fn existing_epub_cover(book_dir: &Path, metadata: &BookMetadata) -> Option<String> {
+    let is_valid = |name: &str| {
+        !name.starts_with("custom-cover.")
+            && book_dir.join(name).is_file()
+            && Path::new(name)
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| {
+                    matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg"
+                    )
+                })
+    };
+    metadata
+        .original_cover_file_name
+        .clone()
+        .filter(|name| is_valid(name))
+        .or_else(|| {
+            metadata
+                .cover_file_name
+                .clone()
+                .filter(|name| is_valid(name))
+        })
+        .or_else(|| {
+            let mut names: Vec<String> = fs::read_dir(book_dir)
+                .ok()?
+                .flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| name.starts_with("cover.") && is_valid(name))
+                .collect();
+            names.sort();
+            names.into_iter().next()
+        })
+}
+
 fn latest_progress(library_dir: &Path, book_id: &str) -> ProgressFile {
     let mut candidates = Vec::new();
     let legacy_path = library_dir
@@ -811,10 +847,7 @@ fn set_custom_cover(
     let metadata_path = book_dir.join("metadata.json");
     let mut metadata = read_json::<BookMetadata>(&metadata_path)?;
     if metadata.original_cover_file_name.is_none() {
-        metadata.original_cover_file_name = metadata
-            .cover_file_name
-            .clone()
-            .filter(|name| !name.starts_with("custom-cover."));
+        metadata.original_cover_file_name = existing_epub_cover(&book_dir, &metadata);
     }
     let file_name = format!("custom-cover.{extension}");
     save_binary(&book_dir.join(&file_name), &data)?;
@@ -832,10 +865,8 @@ fn restore_book_cover(app: AppHandle, book_id: String) -> Result<BookRecord, Str
     let book_dir = library_dir.join("books").join(&book_id);
     let metadata_path = book_dir.join("metadata.json");
     let mut metadata = read_json::<BookMetadata>(&metadata_path)?;
-    let original = metadata
-        .original_cover_file_name
-        .clone()
-        .filter(|name| book_dir.join(name).is_file());
+    let original = existing_epub_cover(&book_dir, &metadata);
+    metadata.original_cover_file_name = original.clone();
     metadata.cover_file_name = original;
     metadata.cover_source = Some(if metadata.cover_file_name.is_some() {
         "epub".to_string()
@@ -1004,6 +1035,32 @@ mod tests {
         let recovered = read_json::<ProgressFile>(&path).unwrap();
         assert_eq!(recovered.cfi, expected.cfi);
         assert_eq!(recovered.percentage, 0.42);
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[test]
+    fn finds_epub_cover_for_legacy_metadata() {
+        let test_root = std::env::temp_dir().join(format!("bookreader-cover-{}", Uuid::new_v4()));
+        fs::create_dir_all(&test_root).unwrap();
+        fs::write(test_root.join("cover.jpg"), b"legacy-cover").unwrap();
+        let metadata = BookMetadata {
+            schema_version: 1,
+            id: "legacy-book".to_string(),
+            title: "旧版图书".to_string(),
+            author: "作者".to_string(),
+            language: None,
+            description: None,
+            publisher: None,
+            imported_at: "2026-08-25T10:00:00Z".to_string(),
+            source_file_name: "legacy.epub".to_string(),
+            original_cover_file_name: None,
+            cover_file_name: None,
+            cover_source: None,
+        };
+        assert_eq!(
+            existing_epub_cover(&test_root, &metadata).as_deref(),
+            Some("cover.jpg")
+        );
         fs::remove_dir_all(test_root).unwrap();
     }
 

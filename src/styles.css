@@ -7,7 +7,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 820px; min-height: 600px; background: #f6f6f3; }
+html, body, #root { min-width: 0; min-height: 100%; }
+body { margin: 0; min-height: 600px; overflow-x: hidden; background: #f6f6f3; }
 button, input { font: inherit; }
 button { color: inherit; }
 button:disabled { cursor: not-allowed; opacity: .58; }
@@ -34,7 +35,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #71839a; outline-
 .app-message button { width: 25px; height: 25px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: transparent; cursor: pointer; }
 .app-message button:hover { background: #efefec; }
 
-.library-page, .settings-page { max-width: 1320px; margin: 0 auto; padding: 54px clamp(32px, 5vw, 76px) 64px; }
+.library-page, .settings-page, .notes-workspace-page { max-width: 1320px; margin: 0 auto; padding: 54px clamp(32px, 5vw, 76px) 64px; }
 .library-header { display: flex; justify-content: space-between; gap: 30px; align-items: flex-end; margin-bottom: 34px; }
 .eyebrow { margin: 0 0 7px; color: #85878c; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
@@ -124,9 +125,9 @@ h1, h2, h3, p { margin-top: 0; }
 .loading-spinner { width: 18px; height: 18px; display: inline-block; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 700ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.reader { --reader-bg: #e8e2d5; --paper-bg: #f4eedf; --reader-text: #39342d; --reader-muted: #756d61; --reader-line: rgba(75, 68, 58, .16); --panel-bg: #f4f0e7; --panel-text: #39342d; --panel-muted: #766f64; --panel-line: rgba(75, 68, 58, .14); --panel-hover: rgba(75, 68, 58, .08); --panel-control: #e5ded1; --panel-selected: #fffaf0; --panel-shadow: rgba(35, 31, 25, .16); min-height: 100vh; background: var(--reader-bg); color: var(--reader-text); transition: background 180ms ease, color 180ms ease; }
-.reader-light { --reader-bg: #ededeb; --paper-bg: #fff; --reader-text: #292b2f; --reader-muted: #74777c; --reader-line: rgba(40, 42, 46, .14); --panel-bg: #f8f8f5; --panel-text: #292b2f; --panel-muted: #74777c; --panel-line: rgba(40, 42, 46, .12); --panel-hover: rgba(40, 42, 46, .06); --panel-control: #e9e9e5; --panel-selected: #fff; --panel-shadow: rgba(20, 22, 25, .14); }
-.reader-dark { --reader-bg: #1f2022; --paper-bg: #282a2d; --reader-text: #d8d5cf; --reader-muted: #96928a; --reader-line: rgba(235, 232, 225, .13); --panel-bg: #242629; --panel-text: #dfddd8; --panel-muted: #96999e; --panel-line: rgba(235, 232, 225, .12); --panel-hover: rgba(235, 232, 225, .07); --panel-control: #303236; --panel-selected: #404348; --panel-shadow: rgba(0, 0, 0, .38); }
+.reader { --reader-bg: #e8e2d5; --paper-bg: #f4eedf; --reader-text: #39342d; --reader-muted: #756d61; --reader-line: rgba(75, 68, 58, .16); --panel-bg: #f4f0e7; --panel-text: #39342d; --panel-muted: #766f64; --panel-line: rgba(75, 68, 58, .14); --panel-hover: rgba(75, 68, 58, .08); --panel-control: #e5ded1; --panel-selected: #fffaf0; --panel-shadow: rgba(35, 31, 25, .16); --scroll-track: #e8e1d3; --scroll-thumb: #a69d8d; width: 100%; height: 100vh; min-width: 0; overflow: hidden; background: var(--reader-bg); color: var(--reader-text); transition: background 180ms ease, color 180ms ease; }
+.reader-light { --reader-bg: #ededeb; --paper-bg: #fff; --reader-text: #292b2f; --reader-muted: #74777c; --reader-line: rgba(40, 42, 46, .14); --panel-bg: #f8f8f5; --panel-text: #292b2f; --panel-muted: #74777c; --panel-line: rgba(40, 42, 46, .12); --panel-hover: rgba(40, 42, 46, .06); --panel-control: #e9e9e5; --panel-selected: #fff; --panel-shadow: rgba(20, 22, 25, .14); --scroll-track: #efefec; --scroll-thumb: #a2a5a8; }
+.reader-dark { --reader-bg: #1f2022; --paper-bg: #282a2d; --reader-text: #d8d5cf; --reader-muted: #96928a; --reader-line: rgba(235, 232, 225, .13); --panel-bg: #242629; --panel-text: #dfddd8; --panel-muted: #96999e; --panel-line: rgba(235, 232, 225, .12); --panel-hover: rgba(235, 232, 225, .07); --panel-control: #303236; --panel-selected: #404348; --panel-shadow: rgba(0, 0, 0, .38); --scroll-track: #242629; --scroll-thumb: #62666c; }
 .reader-toolbar { position: fixed; z-index: 20; inset: 0 0 auto; height: 58px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 17px; border-bottom: 1px solid var(--reader-line); background: color-mix(in srgb, var(--reader-bg) 92%, transparent); backdrop-filter: blur(16px); }
 .reader-toolbar-side { display: flex; align-items: center; gap: 5px; }
 .toolbar-right { justify-content: flex-end; }
@@ -136,10 +137,10 @@ h1, h2, h3, p { margin-top: 0; }
 .reader-title { min-width: 0; max-width: min(52vw, 660px); display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
 .reader-title strong { max-width: 100%; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .reader-title span { margin-top: 2px; color: var(--reader-muted); font-size: 10px; }
-.reading-stage { min-height: 100vh; display: grid; grid-template-columns: minmax(52px, 1fr) minmax(500px, 760px) minmax(52px, 1fr); padding: 92px 0 74px; }
+.reading-stage { width: 100%; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(52px, 1fr) minmax(0, 760px) minmax(52px, 1fr); padding: 92px 0 74px; overflow: hidden; }
 .reading-paper { grid-column: 2; min-height: calc(100vh - 166px); padding: clamp(45px, 6vw, 76px) clamp(58px, 7vw, 96px); border-radius: 3px; background: var(--paper-bg); box-shadow: 0 10px 38px rgba(35, 31, 25, .13); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; line-height: 1.95; letter-spacing: .015em; }
 .epub-paper { height: calc(100vh - 166px); min-height: 430px; padding: 0; overflow: hidden; transition: background 180ms ease; }
-.epub-paper iframe { border: 0 !important; }
+.epub-paper iframe { max-width: 100% !important; border: 0 !important; }
 .chapter-heading { margin-bottom: 36px; text-align: center; }
 .chapter-heading span { color: var(--reader-muted); font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 12px; }
 .chapter-heading h1 { margin: 10px 0 0; font-size: 1.5em; font-weight: 500; letter-spacing: .08em; }
@@ -187,9 +188,14 @@ h1, h2, h3, p { margin-top: 0; }
 .light-swatch { background: #fff; color: #303237; }
 .paper-swatch { background: #eee5d3; color: #4b443a; }
 .dark-swatch { background: #292b2e; color: #e0ded9; }
-.mode-scroll .reading-stage { display: block; padding: 92px clamp(38px, 8vw, 110px) 84px; }
-.mode-scroll .reading-paper { max-width: 760px; margin: 0 auto; }
-.mode-scroll .epub-paper { overflow-y: auto; overscroll-behavior: contain; }
+.mode-scroll .reading-stage { display: block; padding: 92px clamp(20px, 7vw, 110px) 74px; }
+.mode-scroll .reading-paper { width: min(760px, 100%); max-width: 100%; margin: 0 auto; }
+.mode-scroll .epub-paper { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+
+.toc-panel nav, .search-results, .notes-scroll, .footnote-popover, .mode-scroll .epub-paper { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.toc-panel nav::-webkit-scrollbar, .search-results::-webkit-scrollbar, .notes-scroll::-webkit-scrollbar, .footnote-popover::-webkit-scrollbar, .mode-scroll .epub-paper::-webkit-scrollbar { width: 9px; height: 9px; }
+.toc-panel nav::-webkit-scrollbar-track, .search-results::-webkit-scrollbar-track, .notes-scroll::-webkit-scrollbar-track, .footnote-popover::-webkit-scrollbar-track, .mode-scroll .epub-paper::-webkit-scrollbar-track { background: var(--scroll-track); }
+.toc-panel nav::-webkit-scrollbar-thumb, .search-results::-webkit-scrollbar-thumb, .notes-scroll::-webkit-scrollbar-thumb, .footnote-popover::-webkit-scrollbar-thumb, .mode-scroll .epub-paper::-webkit-scrollbar-thumb { border: 2px solid var(--scroll-track); border-radius: 999px; background: var(--scroll-thumb); }
 
 .return-reading-button { position: fixed; z-index: 24; top: 68px; left: 50%; height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--reader-line); border-radius: 999px; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 7px 20px var(--panel-shadow); transform: translateX(-50%); cursor: pointer; }
 .reader-message { position: fixed; z-index: 90; right: 18px; bottom: 49px; max-width: 420px; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--reader-line); border-radius: 9px; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 10px 28px var(--panel-shadow); font-size: 12px; }
@@ -241,6 +247,51 @@ h1, h2, h3, p { margin-top: 0; }
 .reflection-dialog > div:last-child button { height: 36px; padding: 0 13px; border: 1px solid var(--panel-line); border-radius: 8px; background: transparent; color: var(--panel-text); cursor: pointer; }
 .reflection-dialog > div:last-child button.save-reflection { border-color: #40566e; background: #40566e; color: #fff; }
 
+.notes-workspace-page { max-width: 1440px; }
+.notes-workspace-header { margin-bottom: 28px; }
+.notes-workspace-header h1 { margin-bottom: 7px; font-size: 29px; line-height: 1.2; letter-spacing: -.035em; }
+.notes-workspace-header > div > p:last-child { margin: 0; color: #73767c; font-size: 13px; }
+.notes-workspace { min-height: calc(100vh - 190px); display: grid; grid-template-columns: minmax(210px, 260px) minmax(0, 1fr); overflow: hidden; border: 1px solid #dfdfda; border-radius: 14px; background: #fff; box-shadow: 0 8px 28px rgba(26, 28, 31, .06); }
+.notes-book-list { min-height: 0; max-height: calc(100vh - 190px); overflow-y: auto; padding: 10px; border-right: 1px solid #e5e5e1; background: #f2f2ee; scrollbar-width: thin; scrollbar-color: #aaa #e8e8e3; }
+.notes-book-list > button { width: 100%; display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 11px; padding: 9px; border: 0; border-radius: 9px; background: transparent; color: #51545a; text-align: left; cursor: pointer; }
+.notes-book-list > button:hover { background: rgba(38, 41, 45, .055); }
+.notes-book-list > button.active { background: #deded9; color: #24262a; }
+.notes-book-list .mini-cover { width: 38px; border-radius: 3px; font-size: 8px; box-shadow: 0 3px 8px rgba(31, 34, 38, .14); }
+.notes-book-list > button > span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.notes-book-list strong, .notes-book-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-book-list strong { font-size: 12px; font-weight: 600; }
+.notes-book-list small { color: #7a7d82; font-size: 10px; }
+.notes-editor { min-width: 0; max-height: calc(100vh - 190px); overflow-y: auto; padding: clamp(24px, 4vw, 48px); scrollbar-width: thin; scrollbar-color: #aaa #f4f4f1; }
+.notes-loading { min-height: 360px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #777a80; }
+.notes-editor-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 24px; border-bottom: 1px solid #e8e8e4; }
+.notes-editor-title > div { min-width: 0; }
+.notes-editor-title span { color: #81848a; font-size: 11px; }
+.notes-editor-title h2 { margin: 6px 0; overflow: hidden; font-size: 22px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.notes-editor-title p { margin: 0; color: #777a80; font-size: 12px; }
+.notes-summary-editor { display: flex; flex-direction: column; gap: 10px; padding: 27px 0; border-bottom: 1px solid #e8e8e4; }
+.notes-summary-editor > span { font-size: 13px; font-weight: 600; }
+.notes-summary-editor textarea { min-height: 170px; resize: vertical; padding: 15px; border: 1px solid #d9dad6; border-radius: 10px; background: #fafaf8; color: #292b2f; font: inherit; font-size: 14px; line-height: 1.8; outline: none; }
+.notes-summary-editor textarea:focus, .notes-record-card textarea:focus { border-color: #8393a4; box-shadow: 0 0 0 3px rgba(113, 131, 154, .1); }
+.notes-summary-editor button { align-self: flex-end; }
+.notes-records { padding-top: 26px; }
+.notes-records-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.notes-records-heading h3 { margin: 0; font-size: 15px; }
+.notes-records-heading span { color: #7d8085; font-size: 11px; }
+.notes-record-card { padding: 20px; margin-bottom: 14px; border: 1px solid #dedfdb; border-radius: 11px; background: #fbfbf9; }
+.notes-original { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 11px; padding: 0 0 17px; border: 0; border-bottom: 1px solid #e5e5e1; background: transparent; color: #34373b; text-align: left; cursor: pointer; }
+.notes-original svg { margin-top: 5px; color: #a47b15; }
+.notes-original blockquote { margin: 0; font-family: "Noto Serif SC", "Songti SC", serif; font-size: 14px; line-height: 1.85; }
+.notes-original > span { margin-top: 5px; color: #63788e; font-size: 11px; white-space: nowrap; }
+.notes-record-card > label { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; color: #65686e; font-size: 11px; }
+.notes-record-card textarea { min-height: 100px; resize: vertical; padding: 11px 12px; border: 1px solid #dbdcd8; border-radius: 8px; background: #fff; color: #292b2f; font: inherit; font-size: 13px; line-height: 1.7; outline: none; }
+.notes-record-card footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
+.notes-record-card footer small { min-width: 0; overflow: hidden; color: #85888d; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.notes-record-card footer > div { display: flex; gap: 7px; }
+.notes-record-card footer button { height: 34px; font-size: 12px; }
+.destructive-text { color: #a44b44 !important; }
+.notes-empty-large { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 58px 20px; color: #85888d; text-align: center; }
+.notes-empty-large p { max-width: 390px; font-size: 13px; line-height: 1.7; }
+
 .settings-page { max-width: 900px; }
 .settings-page > h1 { margin-bottom: 34px; }
 .settings-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 24px; margin-bottom: 14px; border: 1px solid #e0e1dd; border-radius: 12px; background: #fff; }
@@ -258,6 +309,20 @@ h1, h2, h3, p { margin-top: 0; }
   .book-grid { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); }
   .continue-reading { grid-template-columns: 70px 1fr auto; }
   .continue-percent { display: none; }
+  .notes-workspace-page { padding-left: 28px; padding-right: 28px; }
+  .notes-workspace { grid-template-columns: 190px minmax(0, 1fr); }
+  .notes-editor { padding: 25px; }
+}
+
+@media (max-width: 720px) {
+  .reader-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 8px; }
+  .toolbar-button { padding: 0 7px; }
+  .reading-stage { grid-template-columns: 36px minmax(0, 1fr) 36px; }
+  .mode-scroll .reading-stage { padding-left: 12px; padding-right: 12px; }
+  .reader-panel { width: min(320px, 92vw); }
+  .notes-workspace { grid-template-columns: 74px minmax(0, 1fr); }
+  .notes-book-list > button { grid-template-columns: 1fr; justify-items: center; }
+  .notes-book-list > button > span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

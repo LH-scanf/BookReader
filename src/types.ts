@@ -1,4 +1,4 @@
-export type View = "library" | "reader" | "settings";
+export type View = "library" | "reader" | "notes" | "settings";
 export type LibraryFilter = "all" | "finished";
 export type ReadingMode = "paged" | "scroll";
 export type ReaderTheme = "paper" | "light" | "dark";
