@@ -151,3 +151,14 @@
 - 403 尚未解决；旧授权状态仅为待验证方向，不把重新授权入口视为已修复。未推送、未部署，版本保持 `0.3.0-alpha.1`。
 
 依据：[MSAL prompt 参数行为](https://learn.microsoft.com/en-us/entra/identity-platform/msal-js-prompt-behavior)。
+
+## 2026-08-26 · 重新授权后仍返回 403
+
+- 用户回报重新授权后的连接仍失败：`GET https://graph.microsoft.com/v1.0/me/drive/special/approot`，HTTP 403，`accessDenied` / `Access denied`，请求编号 `b7fc42f3-94b6-4cc7-961d-28bbb933a4a4`。准确请求时间未采集；不编造服务端时间。
+- 重新核对请求构造、个人账号 authority、授权范围和建库顺序：当前路径与官方特殊目录文档一致，AppFolder 是文档列出的个人账号最低权限。重新确认授权未解决问题，不能继续把旧授权缓存当作已知根因。
+- 官方 OneDrive 仓库 issue #1667 存在应用目录初始化相关的 403 报告，但主要涉及上传会话，与本项目的 GET 失败不完全相同，不据此认定微软服务故障。
+- 本轮不改业务代码、不继续重试、不换接口、不扩大权限，也不清除数据。未重新运行测试；上一代码提交 `da02efb` 的 44 项测试及两种前端构建已通过。
+- 后续保留最小权限向微软反馈，或在用户明确同意后做一次较宽 `Files.ReadWrite` 委托权限的对照验证。后者授权范围是用户文件（个人账号也包含共享文件），不是仅 BookReader 目录；即使程序仍只请求应用目录，也不能声称微软限制其只访问此目录。不保证换权限能解决问题，不默认启用，不使用 `Files.ReadWrite.All`。
+- 真实云端同步仍阻塞，部署及 iPhone 验收未完成。对照验证前必须取得用户明确同意，并由用户亲自完成微软授权；本轮没有提交外部支持工单。
+
+参考：[特殊目录权限与请求路径](https://learn.microsoft.com/en-us/graph/api/drive-get-specialfolder?view=graph-rest-1.0)、[Files.ReadWrite 权限范围](https://learn.microsoft.com/en-us/graph/permissions-reference#filesreadwrite)、[OneDrive issue #1667](https://github.com/OneDrive/onedrive-api-docs/issues/1667)。
