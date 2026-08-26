@@ -18,7 +18,7 @@ export default function WebStatus() {
     let disposed = false; let cleanup: (() => void) | undefined;
     const refresh = async () => { const count = await (await database()).count("queue"); if (!disposed) setPending(count); };
     const autoSync = async () => {
-      if (document.visibilityState !== "visible" || !navigator.onLine || !await getSetting<boolean>("syncEnabled")) return;
+      if (document.visibilityState !== "visible" || !navigator.onLine || syncSnapshot().requiresAction || !await getSetting<boolean>("syncEnabled")) return;
       if (await accountInfo()) await syncNow();
     };
     const trigger = () => { void autoSync().catch(() => undefined); };

@@ -6,12 +6,12 @@ import { assertActive, MAX_EPUB_BYTES } from "../library/WebProvider";
 import { notifyLibraryChanged } from "../platform";
 import { GraphClient, GraphError, type DriveItem } from "./graph";
 
-export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string };
+export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
 const listeners = new Set<() => void>();
 export const syncSnapshot = () => status;
 export function subscribeSync(callback: () => void) { listeners.add(callback); return () => { listeners.delete(callback); }; }
-function report(phase: SyncStatus["phase"], message: string) { status = { phase, message }; listeners.forEach((fn) => fn()); }
+function report(phase: SyncStatus["phase"], message: string, requiresAction = false) { status = { phase, message, requiresAction }; listeners.forEach((fn) => fn()); }
 let running: Promise<void> | undefined;
 let retryAt = 0;
 export function syncNow() {
@@ -29,7 +29,9 @@ export function syncNow() {
     });
   })().catch((error: unknown) => {
     if (error instanceof GraphError && [429, 503].includes(error.status)) retryAt = Date.now() + error.retryAfter * 1000;
-    report("error", error instanceof Error ? error.message : "同步失败，本机数据已保留");
+    const requiresAction = error instanceof GraphError && [401, 403].includes(error.status);
+    report("error", (error instanceof Error ? error.message : "同步失败，本机数据已保留")
+      + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction);
     throw error;
   }).finally(() => { running = undefined; });
   return running;

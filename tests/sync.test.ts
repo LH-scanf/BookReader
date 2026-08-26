@@ -1,7 +1,8 @@
 import { expect, it, vi } from "vitest";
 import { database, writeDocuments, pending } from "../src/storage/database";
 import { storeFile } from "../src/storage/files";
-import { synchronize, syncNow } from "../src/sync/engine";
+import { synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
+import * as microsoftAuth from "../src/auth/microsoft";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
 
 const bookId = "10000000-0000-4000-8000-000000000001";
@@ -17,6 +18,19 @@ it("requires explicit connection consent before manual or automatic sync can sta
     expect(request).not.toHaveBeenCalled();
     expect(await (await database()).get("settings", "boundAccount")).toBeUndefined();
   } finally { request.mockRestore(); }
+});
+it.each([401, 403])("pauses foreground retries after Graph HTTP %s without changing consent or the queue", async (status) => {
+  const locks = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_name: string, callback: () => Promise<void>) => callback() } });
+  const auth = vi.spyOn(microsoftAuth, "requireAccount").mockResolvedValue({ homeAccountId: "a", localAccountId: "a", tenantId: "consumers", environment: "login.live.com", username: "a@example.test" });
+  const graph = vi.spyOn(GraphClient.prototype, "json").mockRejectedValue(new GraphError(status, 60));
+  const db = await database(); await db.put("settings", true, "syncConsent"); await db.put("queue", pending(metaPath, meta));
+  try {
+    await expect(syncNow()).rejects.toThrow(`HTTP ${status}`);
+    expect(syncSnapshot()).toMatchObject({ phase: "error", requiresAction: true });
+    expect(syncSnapshot().message).toContain("自动重试已暂停");
+    expect(await db.get("settings", "syncConsent")).toBe(true); expect(await db.count("queue")).toBe(1);
+  } finally { auth.mockRestore(); graph.mockRestore(); if (locks) Object.defineProperty(navigator, "locks", locks); else Reflect.deleteProperty(navigator, "locks"); }
 });
 function fakeGraph() {
   const remote = new Map<string, { item: DriveItem; blob: Blob }>(); const uploaded: string[] = [];
@@ -96,6 +110,29 @@ it("rejects untrusted pagination URLs without sending a bearer token", async () 
   const token = vi.fn(async () => "secret"); const request = vi.fn(); const client = new GraphClient(token, request);
   await expect(client.json("https://evil.example/v1.0/files")).rejects.toThrow("不受信任");
   expect(token).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
+});
+it("reports the failing Graph operation and safe error fields without private response data", async () => {
+  const requestId = "10000000-0000-4000-8000-000000000001";
+  const request = vi.fn(async () => new Response(JSON.stringify({ error: {
+    code: "accessDenied", message: "Denied to person@example.test at https://example.test/?token=private Bearer private-credential",
+    innerError: { code: "serviceReadOnly", trace: "private-server-data" },
+  } }), { status: 403, headers: { "request-id": requestId } }));
+  const client = new GraphClient(async () => "private-token", request);
+  let failure: unknown;
+  try { await client.json("/me/drive/special/approot"); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(GraphError);
+  const error = failure as GraphError;
+  expect(error.diagnostic).toMatchObject({ operation: "访问应用专用目录", code: "accessDenied / serviceReadOnly", requestId });
+  expect(error.message).not.toMatch(/person@example|private|https:\/\//);
+  expect(error.message).toContain("HTTP 403");
+});
+it.each(["<html>upstream error</html>", "x".repeat(17000)])("keeps the HTTP failure when the error body cannot safely be parsed", async (body) => {
+  const client = new GraphClient(async () => "test", vi.fn(async () => new Response(body, { status: 503, headers: { "Retry-After": "12" } })));
+  let failure: unknown;
+  try { await client.json("/me/drive/items/test/children"); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(GraphError);
+  expect((failure as GraphError).retryAfter).toBe(12);
+  expect((failure as GraphError).diagnostic).toMatchObject({ operation: "读取目录内容", code: undefined, detail: undefined });
 });
 it("downloads signed URLs without an Authorization header", async () => {
   const request = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ id: "file", name: "a", eTag: "1", size: 2, "@microsoft.graph.downloadUrl": "https://download.example/file" })))

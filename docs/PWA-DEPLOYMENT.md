@@ -102,6 +102,14 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 ## 6. 当前限制与安全边界
 
+### 首次连接出现 HTTP 403
+
+错误提示现包含失败阶段和 Graph 错误代码。若失败在“访问应用专用目录”，先用相同账号打开 OneDrive 网页，检查是否已初始化、有无冻结/只读/账户提示；再核对 Entra 中 Graph 的 `Files.ReadWrite.AppFolder` 为 **Delegated（委托）** 权限。应用会检查 MSAL 返回的授权范围；该检查通过仍不能保证服务端放行。
+
+完成必要的账户处理后，回到应用“重新登录”，再手动连接。401/403 会暂停当前页面的前台自动重试，避免反复请求；原勾选偏好及本机队列保留。不要以扩大到 `Files.ReadWrite.All`、清空站点数据或新建另一应用作为默认解决办法。若仍失败，提供失败阶段、错误代码、请求编号和权限配置截图即可，不要提供令牌。
+
+### 其他限制
+
 - 本轮是 alpha：没有真实 Graph 联调、iPhone 真机验收或正式部署，不能称为最终交付版。
 - 单本导入/下载上限 100 MB；还需用实际复杂 EPUB 检查 iPhone 内存峰值。不支持 DRM。
 - OPFS 有可用的异步写入接口时保存二进制文件，否则降级 IndexedDB Blob。Safari 17 暴露 OPFS 不代表具备 `createWritable`。不保证系统永不清理缓存；持久存储申请可能不获准。

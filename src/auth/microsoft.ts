@@ -44,7 +44,14 @@ export async function signOut() {
 }
 export async function accessToken() {
   const client = await microsoftClient(); const account = await requireAccount();
-  try { return (await client.acquireTokenSilent({ scopes, account })).accessToken; }
+  try {
+    const result = await client.acquireTokenSilent({ scopes, account });
+    // Inspect MSAL's scope metadata, never decode, log or expose the bearer token.
+    if (!result.scopes.some((scope) => scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, "") === "files.readwrite.appfolder")) {
+      throw new Error("当前授权未包含 Files.ReadWrite.AppFolder。请在微软应用中检查委托权限，并在本应用点击重新登录完成授权；无需扩大为全盘权限");
+    }
+    return result.accessToken;
+  }
   catch (error) {
     if (error instanceof InteractionRequiredAuthError) throw new Error("微软登录已过期，请点击登录重新授权；本机待上传数据已保留");
     throw error;
