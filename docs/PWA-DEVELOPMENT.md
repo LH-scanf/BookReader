@@ -223,3 +223,13 @@
 - 实际本地开发页面已执行步骤 1：阶段 `prepared`，正常同步已锁定、自动同步关闭。尚未在 Entra 添加 Files.ReadWrite、未请求宽 token、未发送宽权限 Graph 请求。等待用户完成 Entra 临时配置后继续步骤 2。
 
 参考：[Files.ReadWrite 权限说明](https://learn.microsoft.com/en-us/graph/permissions-reference#filesreadwrite)、[修改权限不会自动撤销已授予访问](https://learn.microsoft.com/en-us/entra/identity-platform/howto-update-permissions#scenarios-for-updating-permissions)、[删除 DriveItem 与 If-Match](https://learn.microsoft.com/en-us/graph/api/driveitem-delete?view=graph-rest-1.0)。
+
+## 2026-08-26 · Files.ReadWrite 真实对照成功，待撤权复测
+
+- 用户确认已完成 Entra 临时权限配置。应用保持持久同步锁；打开宽权限授权入口后浏览器回跳，随后通过 MSAL 强制刷新成功取得包含 Files.ReadWrite 的 token，没有代用户接受微软授权或记录 token。
+- 实验请求的业务 scope 仅 Files.ReadWrite；MSAL 返回的 scope 元数据还包含先前授权的 AppFolder、User.Read 及 openid/profile，已在诊断文件完整记录。此结果属于“含 Files.ReadWrite 的宽权限”对照，不能把它称为只有 Files.ReadWrite 的 token。
+- 2026-08-26 07:33:23–07:33:34 UTC（北京时间 15:33）：固定 GET approot 返回 200；固定 PUT 探针且 conflictBehavior=fail 返回 201；随后按本次 probe id/eTag 清理，DELETE 返回 204。实验状态 broad-done，probe 清理记录已解除，cleanupUncertain=false。
+- 完整脱敏记录见 [宽权限实验 JSON](diagnostics/onedrive-wide-experiment-2026-08-26.json)。没有运行书库同步、枚举全盘或修改本机队列，正常同步仍锁定。
+- 与此前 AppFolder 的 GET/PUT 均为 403 相比，加入 Files.ReadWrite 后相同目录读写成功，支持权限范围相关行为差异；尚不能确定是初始化问题或特定微软回归，也不能宣告完整同步代码已验证。
+- 下一步需要用户从 Entra 移除 Files.ReadWrite，并在微软个人账号应用授权管理撤销 BookReader 已获授权。用户确认后再清理 MSAL 缓存、仅授权 AppFolder、强制刷新并核对 scope 元数据后复测。当前未执行撤权、AppFolder-only 复测或解除同步锁。
+- 本轮仅新增实测记录，没有改业务代码；沿用 `f56055c` 的 63 项测试及两种构建结果，未重复运行测试。真实同步与 iPhone 验收仍未完成。

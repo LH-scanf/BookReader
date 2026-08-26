@@ -1,0 +1,40 @@
+{
+  "phase": "broad-done",
+  "records": [
+    {
+      "step": "Files.ReadWrite: GET approot",
+      "status": 200,
+      "clientRequestId": "900924bd-3136-493d-8df5-fe786b008cbd",
+      "requestId": "44ef708b-7163-48bc-ae03-a96cbc741c1e",
+      "date": null,
+      "observedAt": "2026-08-26T07:33:23.302Z",
+      "error": null
+    },
+    {
+      "step": "Files.ReadWrite: PUT probe (conflict=fail)",
+      "status": 201,
+      "clientRequestId": "ed4ec315-d522-4880-af9f-3019bcfb6921",
+      "requestId": "07c0e7cd-3108-4ffc-91d2-e0fa532ecdc7",
+      "date": null,
+      "observedAt": "2026-08-26T07:33:24.757Z",
+      "error": null
+    },
+    {
+      "step": "Files.ReadWrite: DELETE own probe (If-Match)",
+      "status": 204,
+      "clientRequestId": "1975a380-b7ad-437f-823f-72dbaa43e909",
+      "requestId": "f9178ffc-1ddf-417f-ae73-86545aab6fef",
+      "date": null,
+      "observedAt": "2026-08-26T07:33:34.944Z",
+      "error": null
+    }
+  ],
+  "broadScopes": [
+    "Files.ReadWrite",
+    "openid",
+    "profile",
+    "Files.ReadWrite.AppFolder",
+    "User.Read"
+  ],
+  "cleanupUncertain": false
+}
