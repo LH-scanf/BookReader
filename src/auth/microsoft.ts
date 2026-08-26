@@ -38,6 +38,8 @@ export async function requireAccount() {
   return account;
 }
 export async function signIn() { await (await microsoftClient()).loginRedirect({ scopes, prompt: "select_account" }); }
+// Explicit user action: ask for consent again without widening access or clearing local data.
+export async function reauthorizeOneDrive() { await (await microsoftClient()).loginRedirect({ scopes, prompt: "consent" }); }
 export async function signOut() {
   const account = await accountInfo();
   await (await microsoftClient()).logoutRedirect({ account, postLogoutRedirectUri: `${location.origin}/` });
@@ -48,7 +50,7 @@ export async function accessToken() {
     const result = await client.acquireTokenSilent({ scopes, account });
     // Inspect MSAL's scope metadata, never decode, log or expose the bearer token.
     if (!result.scopes.some((scope) => scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, "") === "files.readwrite.appfolder")) {
-      throw new Error("当前授权未包含 Files.ReadWrite.AppFolder。请在微软应用中检查委托权限，并在本应用点击重新登录完成授权；无需扩大为全盘权限");
+      throw new Error("当前授权未包含 Files.ReadWrite.AppFolder。请在微软应用中检查委托权限，并在本应用点击重新授权 OneDrive；无需扩大为全盘权限");
     }
     return result.accessToken;
   }

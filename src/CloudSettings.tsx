@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { accountInfo, authConfigured, signIn, signOut } from "./auth/microsoft";
+import { accountInfo, authConfigured, reauthorizeOneDrive, signIn, signOut } from "./auth/microsoft";
 import { getSetting, setSetting } from "./storage/database";
 import { syncNow } from "./sync/engine";
 
@@ -29,11 +29,13 @@ export default function CloudSettings() {
         await setSetting("syncConsent", true); setConnected(true);
         await setSetting("syncEnabled", true); setEnabled(true); await syncNow();
       })}>{busy ? "处理中…" : "连接并同步书库"}</button>
+      <button className="secondary-button" disabled={busy} onClick={() => void action(reauthorizeOneDrive)}>重新授权 OneDrive</button>
       <button className="quiet-button" disabled={busy} onClick={() => void action(async () => {
         await setSetting("syncEnabled", false); setEnabled(false);
         if (window.confirm("退出微软登录？本机文件和待上传数据保留，仍绑定原账号。")) await signOut();
       })}>退出登录</button></>}
     </div>
+    {name && <p>遇到授权错误时，可点击“重新授权 OneDrive”，使用原账号确认应用专用目录权限。本机数据保留，不申请全盘访问。</p>}
     <label className="sync-toggle"><input type="checkbox" checked={enabled} disabled={busy || !name || !connected} onChange={(event) => {
       const value = event.target.checked; void action(async () => { await setSetting("syncEnabled", value); setEnabled(value); });
     }} />应用在前台时自动同步</label>

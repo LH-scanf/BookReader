@@ -106,7 +106,9 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 错误提示现包含失败阶段和 Graph 错误代码。若失败在“访问应用专用目录”，先用相同账号打开 OneDrive 网页，检查是否已初始化、有无冻结/只读/账户提示；再核对 Entra 中 Graph 的 `Files.ReadWrite.AppFolder` 为 **Delegated（委托）** 权限。应用会检查 MSAL 返回的授权范围；该检查通过仍不能保证服务端放行。
 
-完成必要的账户处理后，回到应用“重新登录”，再手动连接。401/403 会暂停当前页面的前台自动重试，避免反复请求；原勾选偏好及本机队列保留。不要以扩大到 `Files.ReadWrite.All`、清空站点数据或新建另一应用作为默认解决办法。若仍失败，提供失败阶段、错误代码、请求编号和权限配置截图即可，不要提供令牌。
+完成必要的账户处理后，回到应用点击“重新授权 OneDrive”，使用原账号亲自确认微软授权页面，回跳后再手动连接。该入口使用 `prompt: consent`，仍仅请求 `Files.ReadWrite.AppFolder`；普通“重新登录”使用账号选择提示，不保证重新显示授权确认。重新授权是排查步骤，并不保证解决所有 403。401/403 会暂停当前页面的前台自动重试，避免反复请求；原勾选偏好及本机队列保留。不要以扩大到 `Files.ReadWrite.All`、清空站点数据或新建另一应用作为默认解决办法。若仍失败，提供失败阶段、错误代码、请求编号和权限配置截图即可，不要提供令牌。
+
+参考：[MSAL prompt 参数行为](https://learn.microsoft.com/en-us/entra/identity-platform/msal-js-prompt-behavior)。
 
 ### 其他限制
 

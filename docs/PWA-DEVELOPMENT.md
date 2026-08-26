@@ -141,3 +141,13 @@
 - 未尝试全盘权限、替代接口绕过拒绝、清空浏览器数据或重新绑定账号。403 根因与真实同步仍未解决。
 
 参考：[Get special folder 的个人账号权限](https://learn.microsoft.com/en-us/graph/api/drive-get-specialfolder?view=graph-rest-1.0)、[Graph 403 排查](https://learn.microsoft.com/en-us/graph/resolve-auth-errors)。
+
+## 2026-08-26 · 核对账号配置并增加显式重新授权
+
+- 用户截图确认同一账号可打开个人 OneDrive、空间充足，未见冻结/只读提示；应用已配置 Graph `Files.ReadWrite.AppFolder` 委托权限。截图不能证明当前令牌的服务端授权状态，也不足以确定 403 根因。
+- 新增“重新授权 OneDrive”按钮，通过 MSAL `loginRedirect` 的 `prompt: consent` 请求重新显示授权确认；普通登录仍使用 `select_account`。业务权限保持 AppFolder，不清理登录缓存、本机文件或待上传队列。
+- 实际浏览器已进入微软授权确认页，显示应用文件夹访问、基本资料和保持已有授权访问；没有代用户点击“接受”。等待用户确认并回跳后验证真实同步。
+- `npm test`：44 项通过；Web 与桌面前端构建通过，`git diff --check` 通过。新增测试验证普通登录与重新授权使用相同的 AppFolder 范围，仅提示行为不同。
+- 403 尚未解决；旧授权状态仅为待验证方向，不把重新授权入口视为已修复。未推送、未部署，版本保持 `0.3.0-alpha.1`。
+
+依据：[MSAL prompt 参数行为](https://learn.microsoft.com/en-us/entra/identity-platform/msal-js-prompt-behavior)。

@@ -1,17 +1,31 @@
 import { expect, it, vi } from "vitest";
 import { getSetting } from "../src/storage/database";
 
-const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"] }));
+const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn() }));
 vi.mock("@azure/msal-browser", () => ({
   InteractionRequiredAuthError: class extends Error {},
   PublicClientApplication: class {
     async initialize() {}
+    loginRedirect(request: unknown) { return state.redirect(request); }
     async handleRedirectPromise() { return null; }
     getActiveAccount() { return state.account; }
     getAllAccounts() { return [state.account]; }
     async acquireTokenSilent() { return { scopes: state.scopes, accessToken: "test-access-token" }; }
   },
 }));
+it("requests explicit re-consent using only the existing app-folder scope", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  state.redirect.mockClear();
+  try {
+    const { signIn, reauthorizeOneDrive } = await import("../src/auth/microsoft");
+    await signIn();
+    await reauthorizeOneDrive();
+    expect(state.redirect.mock.calls).toEqual([
+      [{ scopes: ["Files.ReadWrite.AppFolder"], prompt: "select_account" }],
+      [{ scopes: ["Files.ReadWrite.AppFolder"], prompt: "consent" }],
+    ]);
+  } finally { vi.unstubAllEnvs(); }
+});
 it("pins the local library to one account and rejects a different account without rebinding", async () => {
   vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
   const { requireAccount } = await import("../src/auth/microsoft");
