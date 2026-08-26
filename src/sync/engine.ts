@@ -18,6 +18,7 @@ export function syncNow() {
   if (running) return running;
   running = (async () => {
     if (!navigator.onLine) throw new Error("当前离线，已保存到本机，联网后同步");
+    if (!await getSetting<boolean>("syncConsent")) throw new Error("请先到设置中点击“连接并同步书库”并确认，再使用同步");
     if (Date.now() < retryAt) throw new Error("OneDrive 暂时限流，请稍后重试");
     if (!navigator.locks) throw new Error("当前浏览器缺少安全同步锁，请升级浏览器；本地阅读不受影响");
     await navigator.locks.request("bookreader-sync", async () => {

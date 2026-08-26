@@ -5,11 +5,13 @@ import { syncNow } from "./sync/engine";
 
 export default function CloudSettings() {
   const [name, setName] = useState(""); const [enabled, setEnabled] = useState(false);
+  const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
   const [storage, setStorage] = useState(""); const [url, setUrl] = useState("");
   useEffect(() => {
     void accountInfo().then((account) => setName(account?.username ?? "")).catch((error) => setMessage(String(error)));
     void getSetting<boolean>("syncEnabled").then((value) => setEnabled(!!value));
+    void getSetting<boolean>("syncConsent").then((value) => setConnected(!!value));
     void getSetting<string>("libraryWebUrl").then((value) => setUrl(value ?? ""));
     void navigator.storage?.estimate?.().then((estimate) => setStorage(`本机站点已用约 ${Math.round((estimate.usage ?? 0) / 1024 / 1024)} MB`));
   }, []);
@@ -23,7 +25,8 @@ export default function CloudSettings() {
     <p>使用个人 OneDrive 应用专用目录。首次连接会建立 BookReaderLibrary；本机书库将绑定该微软账号。</p>
     <div className="settings-actions"><button className="secondary-button" disabled={busy || !authConfigured()} onClick={() => void action(signIn)}>{name ? "重新登录" : "登录微软账号"}</button>
       {name && <><button className="primary-button" disabled={busy} onClick={() => void action(async () => {
-        if (!enabled && !window.confirm("将本机图书、阅读进度和删除/恢复记录同步到当前微软账号的应用专用目录？")) return;
+        if (!await getSetting<boolean>("syncConsent") && !window.confirm("连接当前微软账号的应用专用目录并创建 BookReaderLibrary（若不存在）？本机图书、阅读进度和删除/恢复记录将同步到此目录，并启用前台自动同步。")) return;
+        await setSetting("syncConsent", true); setConnected(true);
         await setSetting("syncEnabled", true); setEnabled(true); await syncNow();
       })}>{busy ? "处理中…" : "连接并同步书库"}</button>
       <button className="quiet-button" disabled={busy} onClick={() => void action(async () => {
@@ -31,7 +34,7 @@ export default function CloudSettings() {
         if (window.confirm("退出微软登录？本机文件和待上传数据保留，仍绑定原账号。")) await signOut();
       })}>退出登录</button></>}
     </div>
-    <label className="sync-toggle"><input type="checkbox" checked={enabled} disabled={busy || !name} onChange={(event) => {
+    <label className="sync-toggle"><input type="checkbox" checked={enabled} disabled={busy || !name || !connected} onChange={(event) => {
       const value = event.target.checked; void action(async () => { await setSetting("syncEnabled", value); setEnabled(value); });
     }} />应用在前台时自动同步</label>
     {url.startsWith("https://") && <p><a href={url} target="_blank" rel="noreferrer">查看 OneDrive 书库目录</a></p>}

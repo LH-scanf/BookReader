@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { database, writeDocuments, pending } from "../src/storage/database";
 import { storeFile } from "../src/storage/files";
-import { synchronize } from "../src/sync/engine";
+import { synchronize, syncNow } from "../src/sync/engine";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
 
 const bookId = "10000000-0000-4000-8000-000000000001";
@@ -10,6 +10,14 @@ const metaPath = `books/${bookId}/metadata.json`;
 const epubPath = `books/${bookId}/book.epub`;
 const progressPath = `progress/${bookId}/${device}.json`;
 const meta = { schemaVersion: 1, id: bookId, title: "云端测试", author: "作者", importedAt: "2026-08-26T00:00:00Z", sourceFileName: "a.epub", coverFileName: null };
+it("requires explicit connection consent before manual or automatic sync can start", async () => {
+  const request = vi.spyOn(globalThis, "fetch");
+  try {
+    await expect(syncNow()).rejects.toThrow("连接并同步书库");
+    expect(request).not.toHaveBeenCalled();
+    expect(await (await database()).get("settings", "boundAccount")).toBeUndefined();
+  } finally { request.mockRestore(); }
+});
 function fakeGraph() {
   const remote = new Map<string, { item: DriveItem; blob: Blob }>(); const uploaded: string[] = [];
   const graph = {
@@ -95,6 +103,19 @@ it("downloads signed URLs without an Authorization header", async () => {
   const client = new GraphClient(async () => "secret", request); await client.download("file", 10);
   expect(request.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
   expect(request.mock.calls[1][1].headers).toBeUndefined();
+});
+it("calls the default browser fetch with its global receiver for Graph and signed downloads", async () => {
+  const nativeFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async function (this: unknown, input) {
+    if (this !== globalThis) throw new TypeError("Illegal invocation");
+    return String(input).startsWith("https://graph.microsoft.com/")
+      ? new Response(JSON.stringify({ id: "file", name: "a.epub", eTag: "1", size: 2, "@microsoft.graph.downloadUrl": "https://download.example/a.epub" }))
+      : new Response("PK");
+  });
+  try {
+    const { blob } = await new GraphClient(async () => "test-token").download("file", 10);
+    expect(await blob.text()).toBe("PK");
+    expect(nativeFetch).toHaveBeenCalledTimes(2);
+  } finally { nativeFetch.mockRestore(); }
 });
 it("rescans on descendant cTag change even when the folder eTag is unchanged", async () => {
   const { client, graph, add } = fakeGraph(); add(metaPath, meta); await synchronize(client);

@@ -478,9 +478,9 @@ h1, h2, h3, p { margin-top: 0; }
 @media (max-width: 720px) {
   body { min-height: 100dvh; }
   .app-shell.sidebar-is-open, .app-shell.sidebar-is-closed { grid-template-columns: minmax(0, 1fr); }
-  .library-sidebar { position: fixed; z-index: 80; width: min(280px, 85vw); inset: 0 auto 0 0; padding-top: env(safe-area-inset-top); padding-bottom: calc(40px + env(safe-area-inset-bottom)); transition: transform 180ms ease; }
+  .library-sidebar { position: fixed; z-index: 100; width: min(280px, 85vw); inset: 0 auto 0 0; padding-top: env(safe-area-inset-top); padding-bottom: calc(40px + env(safe-area-inset-bottom)); transition: transform 180ms ease; }
   .sidebar-is-closed .library-sidebar { transform: translateX(-100%); visibility: hidden; }
-  .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 79; border: 0; background: #0006; }
+  .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 99; border: 0; background: #0006; }
   .sidebar-open-button { top: calc(12px + env(safe-area-inset-top)); left: 12px; width: 44px; height: 44px; }
   .library-page, .settings-page, .notes-workspace-page { padding: calc(72px + env(safe-area-inset-top)) 16px 64px; }
   .main-view { min-height: 100dvh; }

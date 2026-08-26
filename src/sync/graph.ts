@@ -6,7 +6,8 @@ export class GraphError extends Error {
   constructor(public status: number, public retryAfter: number) { super(status === 429 ? `OneDrive 请求过多，请稍后重试（${retryAfter} 秒）` : `OneDrive 请求失败（HTTP ${status}），本机数据已保留`); }
 }
 export class GraphClient {
-  constructor(private token = accessToken, private request = fetch) {}
+  // A browser's native fetch requires the global receiver, not this GraphClient.
+  constructor(private token = accessToken, private request: typeof fetch = globalThis.fetch.bind(globalThis)) {}
   async json<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = path.startsWith("https:") ? new URL(path) : new URL(`${BASE}${path}`);
     if (url.origin !== "https://graph.microsoft.com" || !url.pathname.startsWith("/v1.0/")) throw new Error("拒绝不受信任的 Graph 地址");

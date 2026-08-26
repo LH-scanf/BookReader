@@ -12,6 +12,8 @@ export default function WebStatus() {
   const [error, setError] = useState("");
   const [offlineReady, setOfflineReady] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
+  // A retry can start from Settings, not only this component's button.
+  useEffect(() => { if (status.phase === "syncing") setError(""); }, [status.phase]);
   useEffect(() => {
     let disposed = false; let cleanup: (() => void) | undefined;
     const refresh = async () => { const count = await (await database()).count("queue"); if (!disposed) setPending(count); };
