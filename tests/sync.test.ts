@@ -14,6 +14,9 @@ function fakeGraph() {
   const remote = new Map<string, { item: DriveItem; blob: Blob }>(); const uploaded: string[] = [];
   const graph = {
     json: vi.fn(async () => ({ id: "app", name: "App", folder: {}, eTag: "1" })),
+    item: vi.fn(async (id: string): Promise<DriveItem> => id === "root"
+      ? { id: "root", name: "BookReaderLibrary", folder: {}, parentReference: { id: "app" }, eTag: "folder-metadata-only", cTag: JSON.stringify([...remote].map(([path, entry]) => [path, entry.item.eTag])) }
+      : remote.get(id)!.item),
     folder: vi.fn(async (parent: string, name: string) => ({ id: name === "BookReaderLibrary" ? "root" : `${parent}/${name}`, name, folder: {}, eTag: "1" })),
     children: vi.fn(async (parent: string) => {
       const prefix = parent === "root" ? "" : parent.replace(/^root\//, "") + "/"; const children = new Map<string, DriveItem>();
@@ -25,12 +28,13 @@ function fakeGraph() {
       return [...children.values()];
     }),
     download: vi.fn(async (id: string) => { const entry = remote.get(id)!; return { item: entry.item, blob: entry.blob }; }),
-    upload: vi.fn(async (parent: string, name: string, blob: Blob) => {
+    upload: vi.fn(async (parent: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail") => {
       const path = `${parent.replace(/^root\/?/, "")}/${name}`.replace(/^\//, ""); uploaded.push(path);
+      if (conflict === "fail" && remote.has(path)) throw new GraphError(409, 60);
       const item: DriveItem = { id: path, name, file: {}, eTag: crypto.randomUUID(), size: blob.size }; remote.set(path, { item, blob }); return item;
     }),
   };
-  const add = (path: string, data: unknown) => { const blob = new Blob([JSON.stringify(data)]); remote.set(path, { item: { id: path, name: path.split("/").pop()!, eTag: "1", file: {}, size: blob.size }, blob }); };
+  const add = (path: string, data: unknown) => { const blob = new Blob([JSON.stringify(data)]); remote.set(path, { item: { id: path, name: path.split("/").pop()!, eTag: crypto.randomUUID(), file: {}, size: blob.size }, blob }); };
   return { graph, client: graph as unknown as GraphClient, add, remote, uploaded };
 }
 it("uploads EPUB before metadata and retries without dropping queued writes", async () => {
@@ -65,8 +69,9 @@ it("pulls deletion before processing stale progress and does not resurrect the b
 });
 it("only downloads JSON whose eTag changed", async () => {
   const { client, graph, add } = fakeGraph(); add(metaPath, meta);
-  await synchronize(client); graph.download.mockClear(); await synchronize(client);
+  await synchronize(client); graph.download.mockClear(); graph.children.mockClear(); await synchronize(client);
   expect(graph.download).not.toHaveBeenCalled();
+  expect(graph.children).not.toHaveBeenCalled();
 });
 it("does not overwrite desktop edits after a metadata upload response was lost", async () => {
   const { client, add, uploaded } = fakeGraph();
@@ -90,4 +95,78 @@ it("downloads signed URLs without an Authorization header", async () => {
   const client = new GraphClient(async () => "secret", request); await client.download("file", 10);
   expect(request.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
   expect(request.mock.calls[1][1].headers).toBeUndefined();
+});
+it("rescans on descendant cTag change even when the folder eTag is unchanged", async () => {
+  const { client, graph, add } = fakeGraph(); add(metaPath, meta); await synchronize(client);
+  graph.children.mockClear(); add(metaPath, { ...meta, title: "新标题" }); await synchronize(client);
+  expect(graph.children).toHaveBeenCalled();
+  expect((await (await database()).get("documents", metaPath))?.data).toHaveProperty("title", "新标题");
+});
+it("does not substitute folder eTag when cTag is unavailable", async () => {
+  const { client, graph, add } = fakeGraph();
+  graph.item.mockResolvedValue({ id: "root", name: "BookReaderLibrary", folder: {}, parentReference: { id: "app" }, eTag: "unchanged" });
+  add(metaPath, meta); await synchronize(client); graph.children.mockClear(); await synchronize(client);
+  expect(graph.children).toHaveBeenCalled();
+  expect(await (await database()).get("settings", "inventoryCheckpointV1")).toBeUndefined();
+});
+it("periodically rescans even if the reported cTag stays unchanged", async () => {
+  const { client, graph, add } = fakeGraph(); add(metaPath, meta); await synchronize(client);
+  const db = await database(); const checkpoint = await db.get("settings", "inventoryCheckpointV1") as Record<string, unknown>;
+  await db.put("settings", { ...checkpoint, scannedAt: Date.now() - 6 * 60 * 1000 }, "inventoryCheckpointV1");
+  graph.children.mockClear(); await synchronize(client); expect(graph.children).toHaveBeenCalled();
+});
+it("does not publish documents or a checkpoint when the cloud changes during download", async () => {
+  const { client, graph, add } = fakeGraph(); const db = await database(); add(metaPath, meta);
+  graph.item.mockResolvedValueOnce({ id: "root", name: "BookReaderLibrary", folder: {}, eTag: "1", cTag: "before" })
+    .mockResolvedValueOnce({ id: "root", name: "BookReaderLibrary", folder: {}, eTag: "1", cTag: "after" });
+  await db.put("queue", pending(epubPath, undefined, "file"));
+  await expect(synchronize(client)).rejects.toThrow("云端书库发生变化");
+  expect(await db.get("documents", metaPath)).toBeUndefined(); expect(await db.count("remote")).toBe(0);
+  expect(await db.get("settings", "inventoryCheckpointV1")).toBeUndefined(); expect(await db.count("queue")).toBe(1);
+});
+it("keeps the previous checkpoint on failed download and retries the change", async () => {
+  const { client, graph, add } = fakeGraph(); const db = await database(); add(metaPath, meta); await synchronize(client);
+  const before = await db.get("settings", "inventoryCheckpointV1"); add(metaPath, { ...meta, title: "后续内容" });
+  graph.download.mockRejectedValueOnce(new GraphError(503, 1));
+  await expect(synchronize(client)).rejects.toThrow("503"); expect(await db.get("settings", "inventoryCheckpointV1")).toEqual(before);
+  await synchronize(client); expect((await db.get("documents", metaPath))?.data).toHaveProperty("title", "后续内容");
+});
+it("refuses a same-name file created after inventory and preserves the queue", async () => {
+  const { client, graph, add, remote } = fakeGraph(); await writeDocuments([{ path: metaPath, data: meta }]);
+  const original = graph.upload.getMockImplementation()!;
+  graph.upload.mockImplementationOnce(async (...args) => { add(metaPath, { ...meta, title: "另一端新文件" }); return original(...args); });
+  await expect(synchronize(client)).rejects.toThrow("同名文件冲突");
+  expect(JSON.parse(await remote.get(metaPath)!.blob.text()).title).toBe("另一端新文件");
+  const db = await database(); expect((await db.get("queue", metaPath))?.attempts).toBe(1);
+  expect(await db.get("settings", "inventoryCheckpointV1")).toBeUndefined();
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+});
+it("rescans and acknowledges an upload whose successful response was lost", async () => {
+  const { client, graph, uploaded } = fakeGraph(); await writeDocuments([{ path: metaPath, data: meta }]);
+  const original = graph.upload.getMockImplementation()!;
+  graph.upload.mockImplementationOnce(async (...args) => { await original(...args); throw new Error("connection lost"); });
+  await expect(synchronize(client)).rejects.toThrow("connection lost");
+  expect(await (await database()).get("settings", "inventoryCheckpointV1")).toBeUndefined();
+  await synchronize(client); expect(uploaded).toEqual([metaPath]); expect(await (await database()).count("queue")).toBe(0);
+});
+it("rejects a library root that is no longer a folder", async () => {
+  const { client, graph } = fakeGraph();
+  graph.item.mockResolvedValue({ id: "root", name: "BookReaderLibrary", file: {}, eTag: "1" });
+  await expect(synchronize(client)).rejects.toThrow("原文件夹"); expect(graph.children).not.toHaveBeenCalled();
+});
+it("uses server-side conflict rejection by default and explicit replacement only when requested", async () => {
+  const request = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ id: "file", name: "a", eTag: "1" })));
+  const client = new GraphClient(async () => "secret", request);
+  await client.upload("parent", "a.json", new Blob(["a"]));
+  await client.upload("parent", "a.json", new Blob(["b"]), "replace");
+  expect(new URL(String(request.mock.calls[0][0])).searchParams.get("@microsoft.graph.conflictBehavior")).toBe("fail");
+  expect(new URL(String(request.mock.calls[1][0])).searchParams.get("@microsoft.graph.conflictBehavior")).toBe("replace");
+  expect(request.mock.calls[0][1]?.redirect).toBe("error");
+});
+it.each(["missing", "renamed", "moved"])("does not create a replacement when the pinned library is %s", async (change) => {
+  const { client, graph } = fakeGraph(); await synchronize(client); graph.folder.mockClear();
+  if (change === "missing") graph.item.mockRejectedValue(new GraphError(404, 60));
+  else graph.item.mockResolvedValue({ id: "root", name: change === "renamed" ? "renamed" : "BookReaderLibrary", folder: {}, parentReference: { id: change === "moved" ? "elsewhere" : "app" }, eTag: "1" });
+  await expect(synchronize(client)).rejects.toThrow("已停止同步");
+  expect(graph.folder).not.toHaveBeenCalled(); expect(graph.upload).not.toHaveBeenCalled();
 });

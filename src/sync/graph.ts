@@ -1,7 +1,7 @@
 import { accessToken } from "../auth/microsoft";
 
 const BASE = "https://graph.microsoft.com/v1.0";
-export type DriveItem = { id: string; name: string; eTag: string; size?: number; folder?: object; file?: { mimeType?: string }; webUrl?: string; "@microsoft.graph.downloadUrl"?: string };
+export type DriveItem = { id: string; name: string; eTag: string; cTag?: string; size?: number; folder?: object; file?: { mimeType?: string }; parentReference?: { id?: string }; webUrl?: string; "@microsoft.graph.downloadUrl"?: string };
 export class GraphError extends Error {
   constructor(public status: number, public retryAfter: number) { super(status === 429 ? `OneDrive 请求过多，请稍后重试（${retryAfter} 秒）` : `OneDrive 请求失败（HTTP ${status}），本机数据已保留`); }
 }
@@ -10,7 +10,7 @@ export class GraphClient {
   async json<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = path.startsWith("https:") ? new URL(path) : new URL(`${BASE}${path}`);
     if (url.origin !== "https://graph.microsoft.com" || !url.pathname.startsWith("/v1.0/")) throw new Error("拒绝不受信任的 Graph 地址");
-    const response = await this.request(url.href, { ...init, signal: AbortSignal.timeout(60000),
+    const response = await this.request(url.href, { ...init, redirect: "error", signal: AbortSignal.timeout(60000),
       headers: { "Content-Type": "application/json", ...init.headers, Authorization: `Bearer ${await this.token()}` } });
     if (!response.ok) throw new GraphError(response.status, Number(response.headers.get("Retry-After")) || 60);
     return response.json() as Promise<T>;
@@ -58,10 +58,10 @@ export class GraphClient {
     if (item.size !== undefined && size !== item.size) throw new Error("下载未完成，未写入缓存");
     return { blob: new Blob(chunks, { type: item.file?.mimeType ?? "application/octet-stream" }), item };
   }
-  async upload(parentId: string, name: string, blob: Blob): Promise<DriveItem> {
+  async upload(parentId: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail"): Promise<DriveItem> {
     // Each writable shared object is immutable (lifecycle/import) or owned by this device (progress).
     // Small JSON and bounded EPUB files use PUT; the import marker is sent last by the engine.
-    return this.json(`/me/drive/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:/content`, {
+    return this.json(`/me/drive/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:/content?@microsoft.graph.conflictBehavior=${conflict}`, {
       method: "PUT", body: blob, headers: { "Content-Type": blob.type || "application/octet-stream" },
     });
   }

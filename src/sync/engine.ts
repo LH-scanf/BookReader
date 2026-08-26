@@ -35,9 +35,20 @@ export function syncNow() {
 }
 async function libraryRoot(graph: GraphClient) {
   const root = await graph.json<DriveItem>("/me/drive/special/approot");
-  const library = await graph.folder(root.id, "BookReaderLibrary");
   const boundRoot = await getSetting<string>("boundRoot");
-  if (boundRoot && boundRoot !== library.id) throw new Error("云端书库目录已改变；已停止自动上传，请核对目录并备份本机数据");
+  let library: DriveItem;
+  if (boundRoot) {
+    // Never create a replacement before verifying the pinned folder. A moved,
+    // renamed or deleted library needs user recovery, not an empty new library.
+    try { library = await graph.item(boundRoot); }
+    catch (error) {
+      if (error instanceof GraphError && error.status === 404) throw new Error("已绑定的云端书库不存在；已停止同步，请恢复原目录并备份本机数据");
+      throw error;
+    }
+    if (library.id !== boundRoot || !library.folder || library.name !== "BookReaderLibrary" || library.parentReference?.id !== root.id) {
+      throw new Error("云端书库目录已移动或改名；已停止同步，请核对原目录并备份本机数据");
+    }
+  } else library = await graph.folder(root.id, "BookReaderLibrary");
   await setSetting("boundRoot", library.id); await setSetting("libraryWebUrl", library.webUrl ?? "");
   return library.id;
 }
@@ -60,6 +71,21 @@ async function inventory(graph: GraphClient, root: string) {
   }
   await scan(root, "", 0); return result;
 }
+type InventoryCheckpoint = { root: string; cTag: string; scannedAt: number; entries: RemoteRecord[] };
+const INVENTORY_CHECKPOINT = "inventoryCheckpointV1";
+const FULL_SCAN_INTERVAL = 5 * 60 * 1000;
+async function readInventory(graph: GraphClient, root: string) {
+  const before = await graph.item(root);
+  if (before.id !== root || !before.folder) throw new Error("云端书库不再是原文件夹，已停止同步");
+  const cached = await getSetting<InventoryCheckpoint>(INVENTORY_CHECKPOINT);
+  // Only folder cTag tracks descendant changes; folder eTag is not a substitute.
+  // Keep the exact observed snapshot separate from remote records changed by uploads.
+  const age = cached ? Date.now() - cached.scannedAt : Infinity;
+  const reusable = !!before.cTag && cached?.root === root && cached.cTag === before.cTag
+    && age >= 0 && age < FULL_SCAN_INTERVAL;
+  const entries = reusable ? cached.entries : await inventory(graph, root);
+  return { entries, cTag: before.cTag, scannedAt: reusable ? cached.scannedAt : Date.now() };
+}
 function validateDocument(path: string, value: unknown) {
   const parts = path.split("/");
   if (parts[0] === "lifecycle") parseLifecycle(value, parts[1], parts[2].slice(0, -5));
@@ -75,7 +101,7 @@ function validateDocument(path: string, value: unknown) {
 }
 export async function synchronize(graph: GraphClient) {
   const root = await libraryRoot(graph); const db = await database();
-  const entries = await inventory(graph, root);
+  const snapshot = await readInventory(graph, root); const { entries } = snapshot;
   const oldEntries = await db.getAll("remote"); const old = new Map(oldEntries.map((entry) => [entry.path, entry]));
   const incoming: DocumentRecord[] = [];
   for (const entry of entries) {
@@ -93,8 +119,15 @@ export async function synchronize(graph: GraphClient) {
       await storeFile(entry.path, downloaded.blob, entry.etag);
     }
   }
-  // Publish documents together, so metadata cannot become visible before its deletion marker.
-  const tx = db.transaction(["documents", "remote", "queue"], "readwrite");
+  // Do not checkpoint an enumeration that crossed a concurrent cloud write.
+  // Missing cTag falls back to enumeration and never enables snapshot reuse.
+  if (snapshot.cTag) {
+    const after = await graph.item(root);
+    if (after.id !== root || !after.folder || after.cTag !== snapshot.cTag) throw new Error("同步期间云端书库发生变化，请重试；本机文档与队列已保留");
+  }
+  // Publish documents and the observed snapshot together, so a failed download
+  // cannot advance the checkpoint or expose metadata ahead of its deletion marker.
+  const tx = db.transaction(["documents", "remote", "queue", "settings"], "readwrite");
   for (const record of incoming) if (!await tx.objectStore("queue").get(record.path)) await tx.objectStore("documents").put(record);
   for (const entry of entries) await tx.objectStore("remote").put(entry);
   const paths = new Set(entries.map((e) => e.path));
@@ -103,6 +136,8 @@ export async function synchronize(graph: GraphClient) {
     // Retain immutable lifecycle history even if someone removes cloud operation files.
     if (!entry.path.startsWith("lifecycle/") && !await tx.objectStore("queue").get(entry.path)) await tx.objectStore("documents").delete(entry.path);
   }
+  if (snapshot.cTag) await tx.objectStore("settings").put({ root, cTag: snapshot.cTag, scannedAt: snapshot.scannedAt, entries } satisfies InventoryCheckpoint, INVENTORY_CHECKPOINT);
+  else await tx.objectStore("settings").delete(INVENTORY_CHECKPOINT);
   await tx.done;
   notifyLibraryChanged();
   const folderIds = new Map<string, string>([["", root]]);
@@ -142,13 +177,18 @@ export async function synchronize(graph: GraphClient) {
     }
     const parts = write.path.split("/"); const name = parts.pop()!;
     try {
-      const item = await graph.upload(await parent(parts.join("/")), name, blob);
+      // Invalidate before ANY cloud mutation, including parent creation and an
+      // upload whose response can be lost. The next retry must observe the server.
+      await db.delete("settings", INVENTORY_CHECKPOINT);
+      const item = await graph.upload(await parent(parts.join("/")), name, blob, write.path.startsWith("progress/") ? "replace" : "fail");
       await db.put("remote", { path: write.path, id: item.id, etag: item.eTag, size: item.size ?? blob.size });
       await acknowledge(write.path, write.revision);
     } catch (error) {
       const update = db.transaction("queue", "readwrite"); const current = await update.store.get(write.path);
       if (current?.revision === write.revision) await update.store.put({ ...current, attempts: current.attempts + 1 });
-      await update.done; throw error;
+      await update.done;
+      if (error instanceof GraphError && error.status === 409) throw new Error(`云端出现同名文件冲突：${write.path}。本机内容与待上传队列已保留，请重新同步核对`);
+      throw error;
     }
   }
   await setSetting("lastSyncAt", new Date().toISOString()); notifyLibraryChanged();
