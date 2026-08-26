@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { accountInfo, authConfigured, authorizeGraphDiagnostics, reauthorizeOneDrive, signIn, signOut } from "./auth/microsoft";
 import { getSetting, setSetting } from "./storage/database";
 import { syncNow } from "./sync/engine";
 import { runGraphDiagnostics, type DiagnosticEntry } from "./sync/diagnostics";
+import { assertSyncAllowed, EXPERIMENT_PAUSE } from "./sync/experimentGate";
+
+const PermissionExperiment = import.meta.env.DEV ? lazy(() => import("./PermissionExperiment")) : null;
 
 export default function CloudSettings() {
   const [name, setName] = useState(""); const [enabled, setEnabled] = useState(false);
@@ -11,12 +14,19 @@ export default function CloudSettings() {
   const [storage, setStorage] = useState(""); const [url, setUrl] = useState("");
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
   const [allowProbe, setAllowProbe] = useState(false);
+  const [experimentPaused, setExperimentPaused] = useState(false);
   useEffect(() => {
+    const refreshExperiment = () => {
+      void getSetting<boolean>(EXPERIMENT_PAUSE).then((value) => setExperimentPaused(!!value));
+      void getSetting<boolean>("syncEnabled").then((value) => setEnabled(!!value));
+    };
+    refreshExperiment(); window.addEventListener("bookreader-permission-experiment", refreshExperiment);
     void accountInfo().then((account) => setName(account?.username ?? "")).catch((error) => setMessage(String(error)));
     void getSetting<boolean>("syncEnabled").then((value) => setEnabled(!!value));
     void getSetting<boolean>("syncConsent").then((value) => setConnected(!!value));
     void getSetting<string>("libraryWebUrl").then((value) => setUrl(value ?? ""));
     void navigator.storage?.estimate?.().then((estimate) => setStorage(`本机站点已用约 ${Math.round((estimate.usage ?? 0) / 1024 / 1024)} MB`));
+    return () => window.removeEventListener("bookreader-permission-experiment", refreshExperiment);
   }, []);
   const action = async (fn: () => Promise<unknown>) => {
     setBusy(true); setMessage(""); try { await fn(); setUrl(await getSetting<string>("libraryWebUrl") ?? ""); }
@@ -27,7 +37,8 @@ export default function CloudSettings() {
     {!authConfigured() && <p>开发配置尚未填写微软 SPA Client ID。请参照项目部署文档配置；本地阅读无需登录。</p>}
     <p>使用个人 OneDrive 应用专用目录。首次连接会建立 BookReaderLibrary；本机书库将绑定该微软账号。</p>
     <div className="settings-actions"><button className="secondary-button" disabled={busy || !authConfigured()} onClick={() => void action(signIn)}>{name ? "重新登录" : "登录微软账号"}</button>
-      {name && <><button className="primary-button" disabled={busy} onClick={() => void action(async () => {
+      {name && <><button className="primary-button" disabled={busy || experimentPaused} onClick={() => void action(async () => {
+        await assertSyncAllowed();
         if (!await getSetting<boolean>("syncConsent") && !window.confirm("连接当前微软账号的应用专用目录并创建 BookReaderLibrary（若不存在）？本机图书、阅读进度和删除/恢复记录将同步到此目录，并启用前台自动同步。")) return;
         await setSetting("syncConsent", true); setConnected(true);
         await setSetting("syncEnabled", true); setEnabled(true); await syncNow();
@@ -39,11 +50,12 @@ export default function CloudSettings() {
       })}>退出登录</button></>}
     </div>
     {name && <p>遇到授权错误时，可点击“重新授权 OneDrive”，使用原账号确认应用专用目录权限。本机数据保留，不申请全盘访问。</p>}
-    <label className="sync-toggle"><input type="checkbox" checked={enabled} disabled={busy || !name || !connected} onChange={(event) => {
+    {experimentPaused && <p role="status">权限实验保护已启用：自动和手动同步均锁定，刷新或登录回跳不会解除。</p>}
+    <label className="sync-toggle"><input type="checkbox" checked={enabled} disabled={busy || !name || !connected || experimentPaused} onChange={(event) => {
       const value = event.target.checked; void action(async () => { await setSetting("syncEnabled", value); setEnabled(value); });
     }} />应用在前台时自动同步</label>
     {url.startsWith("https://") && <p><a href={url} target="_blank" rel="noreferrer">查看 OneDrive 书库目录</a></p>}
-    {name && <details><summary>OneDrive 诊断（不扩大文件权限）</summary>
+    {name && !experimentPaused && <details><summary>OneDrive 诊断（不扩大文件权限）</summary>
       <p>先读取错误详情；再用同一个 token 对照 /me 与 approot。User.Read 仅用于身份对照，普通同步仍只请求 AppFolder。诊断不上传书库、不记录个人资料或令牌。</p>
       <div className="settings-actions">
         <button className="secondary-button" disabled={busy} onClick={() => void action(async () => {
@@ -62,6 +74,7 @@ export default function CloudSettings() {
       {diagnostics.length > 0 && <textarea aria-label="Graph 诊断结果" readOnly rows={18}
         style={{ width: "100%", boxSizing: "border-box" }} value={JSON.stringify(diagnostics, null, 2)} />}
     </details>}
+    {PermissionExperiment && <Suspense fallback={<p>正在载入诊断工具…</p>}><PermissionExperiment /></Suspense>}
     <p>{storage}。系统可能清理网站数据；待上传内容不等于云端备份。</p>
     <button className="secondary-button" onClick={() => void action(async () => {
       const granted = await navigator.storage?.persist?.(); setMessage(granted ? "浏览器已允许持久存储。请仍保留云端备份。" : "浏览器暂未授予持久存储，请添加到主屏幕并定期同步。");

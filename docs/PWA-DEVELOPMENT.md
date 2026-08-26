@@ -210,3 +210,16 @@
 完整脱敏元数据和 error/innerError 见 [诊断 JSON](diagnostics/onedrive-2026-08-26.json)。两次 403 的 innerError 都只有 date、request-id、client-request-id，没有只读或 provisioning 错误码。响应头 date 在浏览器中为 null，错误正文中有服务端 date。
 
 结论：Graph 已接受同一 token 的身份请求，AppFolder 的 GET 与 PUT 仍被拒绝；探针初始化未解决问题。不能据此证明具体服务端根因，不能证明命中未核实的 #1929/#1930，也不能排除全部授权问题。没有成功写入探针的响应，未继续 GET 重试、未上传书库或修改本机队列。OneDrive 网页新建文件仍未测试。用户要求的本轮三阶段诊断已执行，真实同步仍未恢复。
+
+## 2026-08-26 · 受控 Files.ReadWrite 临时对照工具
+
+- 用户明确同意临时 Files.ReadWrite 诊断，但不允许 BookReader 正式改用。实现仅存在于 Vite 开发模式；生产 Web 和桌面构建均不包含实验组件/宽 scope 字符串，普通授权仍只有 AppFolder（身份诊断另有 User.Read）。
+- 实验第一步持久写入 `permissionExperimentPaused`、关闭 `syncEnabled`，再等待 `bookreader-sync` 锁。`syncNow` 在进入和取得锁后各检查一次，前台触发器也检查；登录回跳/刷新不会解除。普通 token 路径若看到 Files.ReadWrite、其他 Files scope 或 Sites scope，会在发送 Graph 请求前拒绝。
+- 宽权限授权入口有再次确认，只请求 Files.ReadWrite。实验 token 强制刷新并核对 MSAL scope 元数据；同轮只执行一次固定 GET approot 与 PUT `__bookreader_probe.txt`，后者 `conflictBehavior=fail`。不调用同步引擎，不枚举 OneDrive，不上传/删除书库。
+- PUT 成功时仅保存服务返回且名称精确匹配的 probe id/eTag；清理只 DELETE 该 id 并带 If-Match。403/409 明确不清理；网络响应丢失或响应缺安全字段时标记 cleanupUncertain，锁定后续授权和实验，由用户人工核对，绝不猜测删除同名文件。
+- 撤权后步骤先清除当前账号 MSAL 缓存（不清除站点数据/书库/队列），再交互请求 AppFolder。复测 token 强制刷新；若 scope 元数据仍有宽文件权限则不发 Graph 请求。AppFolder GET 200 且再次核对范围后才允许结束，保持 syncEnabled=false，不自动同步。
+- 微软文档说明，删除 Entra 应用注册中的请求权限不会自动撤销已授予访问。因此界面要求同时移除 Entra 临时配置，并从个人微软账号的应用授权管理撤销 BookReader；若整体撤销，随后重新同意 AppFolder。用户操作是服务端撤权事实的唯一来源，应用只核对新 token 的范围元数据。
+- `npm test`：63 项通过；Web/桌面构建和 TypeScript 检查通过，生产 `dist` 中实验标识命中数为 0。覆盖持久锁的两次检查、普通 auth 拒绝宽 token、实验一次性、固定请求、按 id/eTag 清理、409 不删除、响应丢失保持锁、撤权后宽 scope 防误判、复测仍 403 不解锁和本机文档保留。
+- 实际本地开发页面已执行步骤 1：阶段 `prepared`，正常同步已锁定、自动同步关闭。尚未在 Entra 添加 Files.ReadWrite、未请求宽 token、未发送宽权限 Graph 请求。等待用户完成 Entra 临时配置后继续步骤 2。
+
+参考：[Files.ReadWrite 权限说明](https://learn.microsoft.com/en-us/graph/permissions-reference#filesreadwrite)、[修改权限不会自动撤销已授予访问](https://learn.microsoft.com/en-us/entra/identity-platform/howto-update-permissions#scenarios-for-updating-permissions)、[删除 DriveItem 与 If-Match](https://learn.microsoft.com/en-us/graph/api/driveitem-delete?view=graph-rest-1.0)。

@@ -1,5 +1,6 @@
 import { InteractionRequiredAuthError, PublicClientApplication } from "@azure/msal-browser";
 import { database } from "../storage/database";
+import { assertSyncAllowed } from "../sync/experimentGate";
 
 const scopes = ["Files.ReadWrite.AppFolder"];
 const diagnosticScopes = ["User.Read", ...scopes];
@@ -51,9 +52,15 @@ export async function signOut() {
 export async function accessToken() { return tokenFor(scopes); }
 export async function diagnosticAccessToken() { return tokenFor(diagnosticScopes); }
 async function tokenFor(requestedScopes: string[]) {
+  await assertSyncAllowed();
   const client = await microsoftClient(); const account = await requireAccount();
   try {
     const result = await client.acquireTokenSilent({ scopes: requestedScopes, account });
+    await assertSyncAllowed();
+    if (result.scopes.some((scope) => {
+      const normalized = scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, "");
+      return (normalized.startsWith("files.") && normalized !== "files.readwrite.appfolder") || normalized.startsWith("sites.");
+    })) throw new Error("当前缓存授权包含较宽的文件权限，正常同步已拒绝使用；请先撤销实验授权并清理登录缓存");
     // Inspect MSAL's scope metadata, never decode, log or expose the bearer token.
     if (!result.scopes.some((scope) => scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, "") === "files.readwrite.appfolder")) {
       throw new Error("当前授权未包含 Files.ReadWrite.AppFolder。请在微软应用中检查委托权限，并在本应用点击重新授权 OneDrive；无需扩大为全盘权限");

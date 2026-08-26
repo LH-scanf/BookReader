@@ -118,6 +118,20 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 只有显式勾选探针选项，才会在 /me 成功且 approot 返回 403 后写入应用目录内的 `__bookreader_probe.txt`。同名则失败，不覆盖、不删除；成功后再次读取 approot。默认不勾选，不自动执行，也不上传本机书库。遇到授权交互错误时，需完成微软授权再运行，而不是把它当成 Graph /me 失败。结果仅保存在页面内存及控制台，跳转前请复制需要保留的诊断；不要分享浏览器令牌或完整网络请求头。
 
+### 开发期临时 Files.ReadWrite 对照
+
+仅本地 `npm run dev` 提供，生产构建没有此入口。开始前关闭其他 BookReader 网页，展开设置中的临时实验并按编号执行：
+
+1. 点击“锁定同步并准备实验”。状态必须为 prepared，页面明确显示同步已锁定。
+2. Entra → BookReader → API 权限 → 添加权限 → Microsoft Graph → 委托的权限 → 搜索并勾选 `Files.ReadWrite` → 添加权限。不要选择 `Files.ReadWrite.All`，不要创建 secret。
+3. 回到 BookReader，点击“临时授权 Files.ReadWrite”，阅读微软权限说明后亲自接受；回跳后点击一次“仅执行一次 GET + PUT”。不要点击其他同步入口。
+4. 若创建了本次 probe，点击“清理本次探针”。出现 cleanupUncertain 时停止，人工核对 `Apps/BookReader/__bookreader_probe.txt` 的内容/时间；不要删除已有同名旧文件。
+5. 在 Entra 移除临时 Files.ReadWrite。还必须打开 [微软个人账号应用授权管理](https://account.live.com/consent/Manage) 撤销 BookReader 已获授权；微软文档明确，移除应用注册配置不会自动撤销已授予访问。若页面只能整体撤销，这是预期，下一步会重新授予 AppFolder。
+6. 勾选已完成撤权，点击“清理登录缓存并仅授权 AppFolder”，亲自同意；再运行 AppFolder-only GET。工具强制刷新 token 并拒绝含 Files.ReadWrite 等宽 scope 的 token。
+7. 只有 AppFolder-only GET 为 200 才可点击结束。结束仅解除保护锁，自动同步仍关闭；先审阅结果再决定是否手动同步。
+
+如果宽权限 GET/PUT 仍为 403，或撤权后的 scope 无法确认，实验保持锁定并停止。不要为了“完成流程”勾选未实际发生的撤权，也不要清除整个站点数据。
+
 ### 其他限制
 
 - 本轮是 alpha：没有真实 Graph 联调、iPhone 真机验收或正式部署，不能称为最终交付版。

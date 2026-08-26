@@ -12,6 +12,22 @@ const metaPath = `books/${bookId}/metadata.json`;
 const epubPath = `books/${bookId}/book.epub`;
 const progressPath = `progress/${bookId}/${device}.json`;
 const meta = { schemaVersion: 1, id: bookId, title: "云端测试", author: "作者", importedAt: "2026-08-26T00:00:00Z", sourceFileName: "a.epub", coverFileName: null };
+it("blocks sync during the persisted permission experiment before acquiring auth or sending requests", async () => {
+  const db = await database(); await db.put("settings", true, "permissionExperimentPaused"); await db.put("settings", true, "syncConsent");
+  const auth = vi.spyOn(microsoftAuth, "requireAccount"); const fetch = vi.spyOn(globalThis, "fetch");
+  try { await expect(syncNow()).rejects.toThrow("正常同步已锁定"); expect(auth).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled(); }
+  finally { auth.mockRestore(); fetch.mockRestore(); }
+});
+it("rechecks the experiment gate inside the cross-tab sync lock", async () => {
+  const db = await database(); await db.put("settings", true, "syncConsent");
+  const locks = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_name: string, callback: () => Promise<void>) => {
+    await db.put("settings", true, "permissionExperimentPaused"); return callback();
+  } } });
+  const auth = vi.spyOn(microsoftAuth, "requireAccount");
+  try { await expect(syncNow()).rejects.toThrow("正常同步已锁定"); expect(auth).not.toHaveBeenCalled(); }
+  finally { auth.mockRestore(); if (locks) Object.defineProperty(navigator, "locks", locks); else Reflect.deleteProperty(navigator, "locks"); }
+});
 it("requires explicit connection consent before manual or automatic sync can start", async () => {
   const request = vi.spyOn(globalThis, "fetch");
   try {

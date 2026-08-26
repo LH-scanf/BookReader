@@ -5,6 +5,7 @@ import { activeDeletions, parseLifecycle, parseMetadata, uuidPattern, validProgr
 import { assertActive, MAX_EPUB_BYTES } from "../library/WebProvider";
 import { notifyLibraryChanged } from "../platform";
 import { GraphClient, GraphError, type DriveItem } from "./graph";
+import { assertSyncAllowed } from "./experimentGate";
 
 export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
@@ -17,11 +18,13 @@ let retryAt = 0;
 export function syncNow() {
   if (running) return running;
   running = (async () => {
+    await assertSyncAllowed();
     if (!navigator.onLine) throw new Error("当前离线，已保存到本机，联网后同步");
     if (!await getSetting<boolean>("syncConsent")) throw new Error("请先到设置中点击“连接并同步书库”并确认，再使用同步");
     if (Date.now() < retryAt) throw new Error("OneDrive 暂时限流，请稍后重试");
     if (!navigator.locks) throw new Error("当前浏览器缺少安全同步锁，请升级浏览器；本地阅读不受影响");
     await navigator.locks.request("bookreader-sync", async () => {
+      await assertSyncAllowed();
       report("syncing", "正在同步 OneDrive…");
       await requireAccount(); await synchronize(new GraphClient());
       const count = await (await database()).count("queue");

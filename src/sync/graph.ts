@@ -84,6 +84,7 @@ export class GraphClient {
       this.observe?.(error.diagnostic!.trace!); throw error;
     }
     this.observe?.(responseTrace(response, clientRequestId));
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
   async children(id: string) {
