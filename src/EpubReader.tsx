@@ -14,6 +14,7 @@ import type {
 
 type ReaderProps = {
   book: BookRecord;
+  deviceId: string | null;
   initialPreviewCfi?: string | null;
   onBack: () => void;
   onOpenNotes: () => void;
@@ -34,12 +35,14 @@ function isEditing(target: EventTarget | null) {
   return Boolean((target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']"));
 }
 
-export default function EpubReader({ book, initialPreviewCfi = null, onBack, onOpenNotes, onProgress }: ReaderProps) {
+export default function EpubReader({ book, deviceId, initialPreviewCfi = null, onBack, onOpenNotes, onProgress }: ReaderProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const epubBookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const displayedCfiRef = useRef<string | null>(book.cfi);
+  const observedProgressAtRef = useRef(Date.parse(book.progressUpdatedAt ?? "") || 0);
+  const localNavigationAtRef = useRef(0);
   const lastProgressRef = useRef<{ cfi: string; href: string; percentage: number } | null>(
     book.cfi ? { cfi: book.cfi, href: book.chapterHref ?? "", percentage: book.progress } : null,
   );
@@ -133,6 +136,13 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
     setFootnote(null); setSelectionDraft(null);
   }, []);
 
+  const turnPage = useCallback((direction: "prev" | "next") => {
+    localNavigationAtRef.current = Date.now();
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    void rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
+  }, []);
+
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
     const rendition = renditionRef.current;
@@ -149,9 +159,9 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
     }
     if (readingMode === "paged") {
       if (event.key === "ArrowLeft" || event.key === "PageUp" || (event.key === " " && event.shiftKey)) {
-        event.preventDefault(); void rendition.prev();
+        event.preventDefault(); turnPage("prev");
       } else if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
-        event.preventDefault(); void rendition.next();
+        event.preventDefault(); turnPage("next");
       }
     } else {
       const document = (event.target as Node | null)?.ownerDocument;
@@ -167,10 +177,11 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
           : viewer;
       const viewport = activeScroller?.clientHeight || window.innerHeight;
       const scrollBy = (top: number) => {
+        localNavigationAtRef.current = Date.now();
         activeScroller?.scrollBy({ top, behavior: "smooth" });
       };
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault(); void (event.key === "ArrowLeft" ? rendition.prev() : rendition.next());
+        event.preventDefault(); turnPage(event.key === "ArrowLeft" ? "prev" : "next");
       } else if (event.key === "ArrowUp") {
         event.preventDefault(); scrollBy(-80);
       } else if (event.key === "ArrowDown") {
@@ -180,12 +191,14 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
       } else if (event.key === "PageDown" || event.key === " ") {
         event.preventDefault(); scrollBy(viewport * 0.86);
       } else if (event.key === "Home") {
+        localNavigationAtRef.current = Date.now();
         event.preventDefault(); activeScroller?.scrollTo({ top: 0, behavior: "smooth" });
       } else if (event.key === "End") {
+        localNavigationAtRef.current = Date.now();
         event.preventDefault(); activeScroller?.scrollTo({ top: activeScroller.scrollHeight, behavior: "smooth" });
       }
     }
-  }, [closePanels, openNotesWorkspace, readingMode]);
+  }, [closePanels, openNotesWorkspace, readingMode, turnPage]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKey);
@@ -237,6 +250,7 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
 
   useEffect(() => {
     let cancelled = false;
+    let removeViewerWheel: (() => void) | undefined;
     const viewer = viewerRef.current;
     if (!viewer) return;
     setLoading(true); setError(null); viewer.replaceChildren();
@@ -247,22 +261,29 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
         const epubBook = ePub(data);
         epubBookRef.current = epubBook;
         const navigation = await epubBook.loaded.navigation;
+        if (cancelled) return;
         setToc(navigation.toc ?? []);
         await epubBook.locations.generate(1400);
         if (cancelled) return;
-        const rendition = epubBook.renderTo(viewer, { width: "100%", height: "100%", flow: readingMode === "paged" ? "paginated" : "scrolled-doc", manager: "default", spread: "none", infinite: false });
+        const rendition = epubBook.renderTo(viewer, {
+          width: "100%", height: "100%",
+          flow: readingMode === "paged" ? "paginated" : "scrolled-doc",
+          overflow: readingMode === "paged" ? "hidden" : "scroll",
+          manager: "default", spread: "none", infinite: false,
+        });
         renditionRef.current = rendition;
-        registerBaseTheme(rendition);
+        registerBaseTheme(rendition, readingMode);
         applyReaderTheme(rendition, themeRef.current, viewer);
         rendition.themes.fontSize(`${fontSize}px`);
 
         let wheelLocked = false;
         const onWheel = (event: WheelEvent) => {
+          if (event.deltaX || event.deltaY) localNavigationAtRef.current = Date.now();
           if (readingMode !== "paged" || Math.abs(event.deltaY) < 18) return;
           event.preventDefault();
           if (wheelLocked) return;
           wheelLocked = true;
-          void (event.deltaY > 0 ? rendition.next() : rendition.prev());
+          turnPage(event.deltaY > 0 ? "next" : "prev");
           window.setTimeout(() => { wheelLocked = false; }, 320);
         };
 
@@ -301,6 +322,7 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
           saveTimerRef.current = window.setTimeout(() => void persistProgress({ bookId: book.id, cfi, chapterHref: href, percentage: next }), 700);
         });
         viewer.addEventListener("wheel", onWheel, { passive: false });
+        removeViewerWheel = () => viewer.removeEventListener("wheel", onWheel);
         const initialTarget = initialPreviewConsumedRef.current ? null : initialPreviewRef.current;
         initialPreviewConsumedRef.current = true;
         if (initialTarget) {
@@ -319,11 +341,12 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
     })();
     return () => {
       cancelled = true;
+      removeViewerWheel?.();
       void flushProgress().catch(() => undefined);
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [book.id, readingMode, flushProgress, focusCfi, followInternalLink, handleKey]);
+  }, [book.id, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
@@ -338,10 +361,23 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
   }, [annotations, readerTheme]);
 
   useEffect(() => {
-    if (previewingRef.current || !book.cfi || book.cfi === displayedCfiRef.current) return;
-    previewingRef.current = false; returnCfiRef.current = null; setReturnAvailable(false);
-    void renditionRef.current?.display(book.cfi);
-  }, [book.cfi]);
+    const updatedAt = Date.parse(book.progressUpdatedAt ?? "") || 0;
+    if (updatedAt <= observedProgressAtRef.current) return;
+    observedProgressAtRef.current = updatedAt;
+    // Filesystem refreshes also echo our own delayed writes. A changed CFI alone
+    // is never a navigation command: only a newer, identified remote device is.
+    if (!deviceId || !book.progressDeviceId || book.progressDeviceId === deviceId
+      || updatedAt <= localNavigationAtRef.current || previewingRef.current
+      || !book.cfi || book.cfi === displayedCfiRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    const target = book.cfi;
+    if (!renditionRef.current) {
+      displayedCfiRef.current = target;
+      return;
+    }
+    void renditionRef.current.display(target).catch((reason: unknown) => setReaderMessage(String(reason)));
+  }, [book.cfi, book.progressUpdatedAt, book.progressDeviceId, deviceId]);
 
   useEffect(() => {
     localStorage.setItem("reader-theme", readerTheme); themeRef.current = readerTheme;
@@ -351,6 +387,7 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
   useEffect(() => { localStorage.setItem("reader-mode", readingMode); }, [readingMode]);
 
   const goTo = async (href: string, label: string) => {
+    localNavigationAtRef.current = Date.now();
     previewingRef.current = false; returnCfiRef.current = null; setReturnAvailable(false);
     setChapter(label); setTocOpen(false); await renditionRef.current?.display(href);
   };
@@ -439,7 +476,7 @@ export default function EpubReader({ book, initialPreviewCfi = null, onBack, onO
 
       {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
 
-      <main className="reading-stage">{readingMode === "paged" && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => void renditionRef.current?.prev()}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => void renditionRef.current?.next()}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
+      <main className="reading-stage">{readingMode === "paged" && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
       {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft)}><Highlighter size={15} />高亮</button><button onClick={() => setReflectionDraft({ quote: selectionDraft.quote, reflection: "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />记录感悟</button><button aria-label="取消" onClick={() => setSelectionDraft(null)}><X size={14} /></button></div>}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
@@ -453,10 +490,16 @@ function PanelHeading({ title, subtitle, onClose }: { title: string; subtitle: s
   return <div className="panel-heading"><div><span>{title}</span><small>{subtitle}</small></div><button className="icon-button" aria-label={`关闭${title}`} onClick={onClose}><X size={18} /></button></div>;
 }
 
-function registerBaseTheme(rendition: Rendition) {
+function registerBaseTheme(rendition: Rendition, mode: ReadingMode) {
   rendition.themes.default({
-    html: { width: "100% !important", "max-width": "100% !important", "overflow-x": "hidden !important", "box-sizing": "border-box !important" },
-    body: { width: "auto !important", "max-width": "100% !important", margin: "0 !important", "box-sizing": "border-box !important", "overflow-x": "hidden !important", "overflow-wrap": "anywhere", "font-family": '"Noto Serif SC", "Songti SC", SimSun, serif !important', "line-height": "1.95 !important", "padding": "32px 7% !important" },
+    // Paginated chapters span multiple columns inside a wide iframe. Their
+    // width, padding and overflow must remain under epub.js layout control.
+    body: {
+      "font-family": '"Noto Serif SC", "Songti SC", SimSun, serif !important',
+      "line-height": "1.95 !important",
+      "overflow-wrap": "anywhere",
+      ...(mode === "scroll" ? { padding: "32px 7% !important" } : {}),
+    },
     p: { "text-align": "justify", "text-indent": "2em" },
     a: { color: "var(--bookreader-link-color) !important" },
     img: { "max-width": "100% !important", height: "auto !important" },
@@ -504,9 +547,13 @@ function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTML
       style.id = "bookreader-runtime-style";
       document.head?.append(style);
     }
+    const scrollLayout = rendition.settings.flow !== "paginated";
     style.textContent = `
-      html, body { max-width: 100% !important; overflow-x: hidden !important; scrollbar-width: thin; scrollbar-color: ${palette.scrollThumb} ${palette.scrollTrack}; }
-      * { box-sizing: border-box; }
+      html, body { scrollbar-width: thin; scrollbar-color: ${palette.scrollThumb} ${palette.scrollTrack}; }
+      ${scrollLayout ? `
+        html, body { max-width: 100% !important; overflow: hidden !important; }
+        body { box-sizing: border-box !important; }
+      ` : ""}
       img, svg, video, table { max-width: 100% !important; height: auto; }
       pre { max-width: 100% !important; white-space: pre-wrap !important; overflow-wrap: anywhere; }
       ::-webkit-scrollbar { width: 9px; height: 9px; }

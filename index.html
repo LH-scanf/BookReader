@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f6f3" />
+    <script>
+      // Apply the saved appearance before React and the first content paint.
+      try {
+        const saved = localStorage.getItem("app-appearance");
+        const appearance = saved === "dark" || saved === "light" ? saved
+          : localStorage.getItem("reader-theme") === "dark" ? "dark" : "light";
+        document.documentElement.dataset.appearance = appearance;
+        document.documentElement.style.colorScheme = appearance;
+      } catch { document.documentElement.dataset.appearance = "light"; }
+    </script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>BookReader</title>
   </head>

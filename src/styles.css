@@ -9,7 +9,7 @@
 * { box-sizing: border-box; }
 html, body, #root { min-width: 0; min-height: 100%; }
 body { margin: 0; min-height: 600px; overflow-x: hidden; background: #f6f6f3; }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { color: inherit; }
 button:disabled { cursor: not-allowed; opacity: .58; }
 button:focus-visible, input:focus-visible { outline: 2px solid #71839a; outline-offset: 2px; }
@@ -139,8 +139,10 @@ h1, h2, h3, p { margin-top: 0; }
 .reader-title span { margin-top: 2px; color: var(--reader-muted); font-size: 10px; }
 .reading-stage { width: 100%; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(52px, 1fr) minmax(0, 760px) minmax(52px, 1fr); padding: 92px 0 74px; overflow: hidden; }
 .reading-paper { grid-column: 2; min-height: calc(100vh - 166px); padding: clamp(45px, 6vw, 76px) clamp(58px, 7vw, 96px); border-radius: 3px; background: var(--paper-bg); box-shadow: 0 10px 38px rgba(35, 31, 25, .13); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; line-height: 1.95; letter-spacing: .015em; }
-.epub-paper { height: calc(100vh - 166px); min-height: 430px; padding: 0; overflow: hidden; transition: background 180ms ease; }
-.epub-paper iframe { max-width: 100% !important; border: 0 !important; }
+.epub-paper { height: calc(100vh - 166px); min-height: 0; min-width: 0; padding: 0; overflow: hidden; transition: background 180ms ease; }
+.epub-paper iframe { border: 0 !important; }
+/* A paginated iframe contains the entire chapter, not just the visible page. */
+.mode-paged .epub-paper iframe { max-width: none !important; }
 .chapter-heading { margin-bottom: 36px; text-align: center; }
 .chapter-heading span { color: var(--reader-muted); font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 12px; }
 .chapter-heading h1 { margin: 10px 0 0; font-size: 1.5em; font-weight: 500; letter-spacing: .08em; }
@@ -190,7 +192,15 @@ h1, h2, h3, p { margin-top: 0; }
 .dark-swatch { background: #292b2e; color: #e0ded9; }
 .mode-scroll .reading-stage { display: block; padding: 92px clamp(20px, 7vw, 110px) 74px; }
 .mode-scroll .reading-paper { width: min(760px, 100%); max-width: 100%; margin: 0 auto; }
-.mode-scroll .epub-paper { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.mode-scroll .epub-paper { overflow: hidden; }
+/* epub.js measures this container's clientWidth, excluding the scrollbar. */
+.mode-scroll .epub-container { max-width: 100%; overflow-x: hidden !important; overflow-y: scroll !important; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.mode-scroll .epub-view, .mode-scroll .epub-paper iframe { max-width: 100% !important; }
+.mode-scroll .epub-container::-webkit-scrollbar { width: 9px; height: 0; }
+.mode-scroll .epub-container::-webkit-scrollbar-track { background: var(--scroll-track); }
+.mode-scroll .epub-container::-webkit-scrollbar-thumb { border: 2px solid var(--scroll-track); border-radius: 999px; background: var(--scroll-thumb); }
+.mode-scroll .epub-container::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.mode-scroll .epub-container::-webkit-scrollbar-corner { background: var(--scroll-track); }
 
 .toc-panel nav, .search-results, .notes-scroll, .footnote-popover, .mode-scroll .epub-paper { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
 .toc-panel nav::-webkit-scrollbar, .search-results::-webkit-scrollbar, .notes-scroll::-webkit-scrollbar, .footnote-popover::-webkit-scrollbar, .mode-scroll .epub-paper::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -240,12 +250,16 @@ h1, h2, h3, p { margin-top: 0; }
 .reader-dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(18, 20, 23, .38); backdrop-filter: blur(2px); }
 .reflection-dialog { width: min(560px, 100%); display: flex; flex-direction: column; gap: 18px; padding: 22px; border: 1px solid var(--reader-line); border-radius: 12px; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 25px 80px rgba(0,0,0,.28); }
 .reflection-dialog span, .reflection-dialog label { color: var(--panel-muted); font-size: 12px; }
-.reflection-dialog blockquote { max-height: 150px; overflow-y: auto; margin: 7px 0 0; padding: 10px 12px; border-left: 3px solid #d3b050; background: var(--panel-control); color: var(--panel-text); font-family: "Noto Serif SC", serif; font-size: 13px; line-height: 1.75; }
+.reflection-dialog { max-height: calc(100dvh - 44px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.reflection-dialog blockquote { max-height: min(210px, 31vh); overflow-y: auto; margin: 7px 0 0; padding: 10px 12px; border-left: 3px solid #d3b050; background: var(--panel-control); color: var(--panel-text); font-family: "Noto Serif SC", serif; font-size: 14px; line-height: 1.75; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
 .reflection-dialog label { display: flex; flex-direction: column; gap: 8px; }
-.reflection-dialog textarea { min-height: 140px; resize: vertical; padding: 11px; border: 1px solid var(--panel-line); border-radius: 8px; background: var(--panel-selected); color: var(--panel-text); font: inherit; line-height: 1.65; outline: none; }
+.reflection-dialog textarea { min-height: 140px; max-height: min(300px, 34vh); resize: vertical; padding: 11px; border: 1px solid var(--panel-line); border-radius: 8px; background: var(--panel-selected); color: var(--panel-text); font: inherit; font-size: 14px; line-height: 1.65; outline: none; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
 .reflection-dialog > div:last-child { display: flex; justify-content: flex-end; gap: 8px; }
 .reflection-dialog > div:last-child button { height: 36px; padding: 0 13px; border: 1px solid var(--panel-line); border-radius: 8px; background: transparent; color: var(--panel-text); cursor: pointer; }
 .reflection-dialog > div:last-child button.save-reflection { border-color: #40566e; background: #40566e; color: #fff; }
+.reflection-dialog::-webkit-scrollbar, .reflection-dialog blockquote::-webkit-scrollbar, .reflection-dialog textarea::-webkit-scrollbar { width: 9px; height: 9px; }
+.reflection-dialog::-webkit-scrollbar-track, .reflection-dialog blockquote::-webkit-scrollbar-track, .reflection-dialog textarea::-webkit-scrollbar-track { background: var(--scroll-track); }
+.reflection-dialog::-webkit-scrollbar-thumb, .reflection-dialog blockquote::-webkit-scrollbar-thumb, .reflection-dialog textarea::-webkit-scrollbar-thumb { border: 2px solid var(--scroll-track); border-radius: 999px; background: var(--scroll-thumb); }
 
 .notes-workspace-page { max-width: 1440px; }
 .notes-workspace-header { margin-bottom: 28px; }
@@ -297,11 +311,123 @@ h1, h2, h3, p { margin-top: 0; }
 .settings-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 24px; margin-bottom: 14px; border: 1px solid #e0e1dd; border-radius: 12px; background: #fff; }
 .settings-card h2 { margin-bottom: 6px; font-size: 16px; }
 .settings-card p { margin: 0; color: #74777d; font-size: 13px; }
+.appearance-options { display: grid; grid-template-columns: repeat(2, minmax(86px, 1fr)); gap: 8px; }
+.appearance-options button { height: 58px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; border: 1px solid #d5d6d3; border-radius: 9px; background: #fff; cursor: pointer; }
+.appearance-options button:hover { background: #f2f2ef; }
+.appearance-options button[aria-pressed="true"] { border-color: #71839a; background: #e8edf2; color: #31465b; box-shadow: 0 0 0 2px rgba(113, 131, 154, .15); }
 .directory-row { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 0; border-top: 1px solid #ebebe8; border-bottom: 1px solid #ebebe8; }
 .directory-row > div { display: flex; flex-direction: column; gap: 6px; }
 .directory-row span { color: #6f7278; font-size: 12px; }
 .directory-row code { color: #303338; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
 .status-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; color: #6e7177; font-size: 12px; }
+
+/* Global application appearance. Reader themes remain intentionally independent. */
+:root[data-appearance="dark"] { color: #d9dadd; background: #1f2022; }
+:root[data-appearance="dark"] body { background: #1f2022; }
+:root[data-appearance="dark"] .app-shell { color: #d9dadd; --app-line: #393c40; --app-muted: #9a9da3; --app-surface: #27292c; --app-surface-raised: #2d3034; --app-hover: #34373b; --app-selected: #3a3e43; --app-input: #232529; --app-scroll-track: #25272a; --app-scroll-thumb: #62666c; }
+:root[data-appearance="dark"] .library-sidebar { background: #1a1c1f; border-color: var(--app-line); }
+:root[data-appearance="dark"] .main-view { background: #1f2022; color: #d9dadd; }
+:root[data-appearance="dark"] .page-loading { background: #1f2022; color: #9a9da3; }
+:root[data-appearance="dark"] .sidebar-nav button,
+:root[data-appearance="dark"] .sidebar-footer > button,
+:root[data-appearance="dark"] .sidebar-sync,
+:root[data-appearance="dark"] .eyebrow,
+:root[data-appearance="dark"] .section-kicker,
+:root[data-appearance="dark"] .continue-copy p,
+:root[data-appearance="dark"] .continue-percent,
+:root[data-appearance="dark"] .quiet-button,
+:root[data-appearance="dark"] .book-meta p,
+:root[data-appearance="dark"] .progress-label,
+:root[data-appearance="dark"] .empty-state,
+:root[data-appearance="dark"] .library-setup > p:not(.eyebrow),
+:root[data-appearance="dark"] .library-setup small,
+:root[data-appearance="dark"] .notes-workspace-header > div > p:last-child,
+:root[data-appearance="dark"] .notes-book-list small,
+:root[data-appearance="dark"] .notes-editor-title span,
+:root[data-appearance="dark"] .notes-editor-title p,
+:root[data-appearance="dark"] .notes-records-heading span,
+:root[data-appearance="dark"] .notes-record-card > label,
+:root[data-appearance="dark"] .notes-record-card footer small,
+:root[data-appearance="dark"] .settings-card p,
+:root[data-appearance="dark"] .directory-row span,
+:root[data-appearance="dark"] .status-row { color: var(--app-muted); }
+:root[data-appearance="dark"] .sidebar-nav button:hover,
+:root[data-appearance="dark"] .sidebar-footer > button:hover,
+:root[data-appearance="dark"] .app-shell .icon-button:hover,
+:root[data-appearance="dark"] .quiet-button:hover { background: var(--app-hover); color: #f0f1f2; }
+:root[data-appearance="dark"] .sidebar-nav button.active,
+:root[data-appearance="dark"] .sidebar-footer > button.active,
+:root[data-appearance="dark"] .quiet-button.active,
+:root[data-appearance="dark"] .notes-book-list > button.active { background: var(--app-selected); color: #f2f2f3; }
+:root[data-appearance="dark"] .app-message,
+:root[data-appearance="dark"] .context-menu,
+:root[data-appearance="dark"] .rename-dialog,
+:root[data-appearance="dark"] .settings-card,
+:root[data-appearance="dark"] .notes-workspace,
+:root[data-appearance="dark"] .notes-record-card { border-color: var(--app-line); background: var(--app-surface-raised); color: #e4e4e6; }
+:root[data-appearance="dark"] .app-message { box-shadow: 0 8px 28px rgba(0,0,0,.36); }
+:root[data-appearance="dark"] .app-message button:hover { background: var(--app-hover); }
+:root[data-appearance="dark"] .search-field,
+:root[data-appearance="dark"] .secondary-button,
+:root[data-appearance="dark"] .rename-dialog input,
+:root[data-appearance="dark"] .notes-summary-editor textarea,
+:root[data-appearance="dark"] .notes-record-card textarea,
+:root[data-appearance="dark"] .appearance-options button { border-color: var(--app-line); background: var(--app-input); color: #e0e1e3; }
+:root[data-appearance="dark"] .search-field input,
+:root[data-appearance="dark"] .rename-dialog input,
+:root[data-appearance="dark"] .notes-summary-editor textarea,
+:root[data-appearance="dark"] .notes-record-card textarea,
+:root[data-appearance="dark"] .directory-row code { color: #e1e2e4; }
+:root[data-appearance="dark"] .secondary-button:hover,
+:root[data-appearance="dark"] .appearance-options button:hover,
+:root[data-appearance="dark"] .context-menu button:hover,
+:root[data-appearance="dark"] .context-menu button.selected,
+:root[data-appearance="dark"] .notes-book-list > button:hover { background: var(--app-hover); color: #f1f1f2; }
+:root[data-appearance="dark"] .appearance-options button[aria-pressed="true"] { border-color: #8ca2b9; background: #394959; color: #eff4f9; box-shadow: 0 0 0 2px rgba(140, 162, 185, .14); }
+:root[data-appearance="dark"] .primary-button { border-color: #b7c4d1; background: #b7c4d1; color: #1e242a; }
+:root[data-appearance="dark"] .primary-button:hover { background: #c8d3dd; }
+:root[data-appearance="dark"] .continue-reading { border-color: var(--app-line); background: #292c2f; }
+:root[data-appearance="dark"] .wide-progress,
+:root[data-appearance="dark"] .card-progress { background: #404348; }
+:root[data-appearance="dark"] .wide-progress span,
+:root[data-appearance="dark"] .card-progress span { background: #879caf; }
+:root[data-appearance="dark"] .cover-image-shell { background: #35383c; }
+:root[data-appearance="dark"] .book-meta h3,
+:root[data-appearance="dark"] .empty-state h3,
+:root[data-appearance="dark"] .context-menu button,
+:root[data-appearance="dark"] .notes-original,
+:root[data-appearance="dark"] .notes-book-list > button { color: #e1e2e4; }
+:root[data-appearance="dark"] .context-menu { box-shadow: 0 12px 32px rgba(0,0,0,.4); }
+:root[data-appearance="dark"] .menu-separator,
+:root[data-appearance="dark"] .notes-editor-title,
+:root[data-appearance="dark"] .notes-summary-editor,
+:root[data-appearance="dark"] .notes-original,
+:root[data-appearance="dark"] .directory-row { border-color: var(--app-line); }
+:root[data-appearance="dark"] .library-setup .setup-icon { background: #303338; color: #d9dade; }
+:root[data-appearance="dark"] .notes-book-list { border-color: var(--app-line); background: #222428; }
+:root[data-appearance="dark"] .notes-editor { background: var(--app-surface); }
+:root[data-appearance="dark"] .notes-loading,
+:root[data-appearance="dark"] .notes-empty-large { color: var(--app-muted); }
+:root[data-appearance="dark"] .notes-original svg { color: #d3aa45; }
+:root[data-appearance="dark"] .app-shell :is(.notes-book-list, .notes-editor, textarea) { scrollbar-width: thin; scrollbar-color: var(--app-scroll-thumb) var(--app-scroll-track); }
+:root[data-appearance="dark"] .app-shell :is(.notes-book-list, .notes-editor, textarea)::-webkit-scrollbar { width: 9px; height: 9px; }
+:root[data-appearance="dark"] .app-shell :is(.notes-book-list, .notes-editor, textarea)::-webkit-scrollbar-track { background: var(--app-scroll-track); }
+:root[data-appearance="dark"] .app-shell :is(.notes-book-list, .notes-editor, textarea)::-webkit-scrollbar-thumb { border: 2px solid var(--app-scroll-track); border-radius: 999px; background: var(--app-scroll-thumb); }
+
+.reader { color-scheme: light; }
+.reader-dark { color-scheme: dark; }
+.notes-editor-body { min-width: 0; margin: 0; padding: 0; border: 0; }
+:root[data-appearance="dark"] .app-shell input::placeholder,
+:root[data-appearance="dark"] .app-shell textarea::placeholder { color: #92969d; opacity: 1; }
+:root[data-appearance="dark"] .rename-dialog p,
+:root[data-appearance="dark"] .rename-dialog label,
+:root[data-appearance="dark"] .dialog-kicker { color: #a7aab0; }
+:root[data-appearance="dark"] .notes-original > span { color: #a4bdd4; }
+:root[data-appearance="dark"] .book-menu { background: rgba(39, 41, 44, .94); color: #e3e4e6; }
+:root[data-appearance="dark"] .menu-separator { background: var(--app-line); }
+:root[data-appearance="dark"] .context-menu button.destructive,
+:root[data-appearance="dark"] .destructive-text { color: #edaaa3 !important; }
+:root[data-appearance="dark"] .context-menu button.destructive:hover { background: #493233; }
 
 @media (max-width: 980px) {
   .app-shell.sidebar-is-open { grid-template-columns: 196px minmax(0, 1fr); }
@@ -315,6 +441,7 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 @media (max-width: 720px) {
+  .appearance-card { grid-template-columns: minmax(0, 1fr); }
   .reader-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 8px; }
   .toolbar-button { padding: 0 7px; }
   .reading-stage { grid-template-columns: 36px minmax(0, 1fr) 36px; }

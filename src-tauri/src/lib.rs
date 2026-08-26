@@ -53,6 +53,9 @@ struct ProgressFile {
     percentage: f64,
     finished: bool,
     updated_at: String,
+    // Provenance comes from the per-device filename, not the synced JSON.
+    #[serde(skip)]
+    device_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,12 +70,15 @@ struct BookRecord {
     cfi: Option<String>,
     chapter_href: Option<String>,
     imported_at: String,
+    progress_updated_at: String,
+    progress_device_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LibraryState {
     library_dir: Option<String>,
+    device_id: Option<String>,
     books: Vec<BookRecord>,
 }
 
@@ -298,7 +304,12 @@ fn latest_progress(library_dir: &Path, book_id: &str) -> ProgressFile {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(progress) = read_json::<ProgressFile>(&entry.path()) {
+            if let Ok(mut progress) = read_json::<ProgressFile>(&entry.path()) {
+                progress.device_id = entry
+                    .path()
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .map(str::to_string);
                 candidates.push(progress);
             }
         }
@@ -328,6 +339,8 @@ fn book_record(library_dir: &Path, metadata: BookMetadata, progress: ProgressFil
         cfi: progress.cfi,
         chapter_href: progress.chapter_href,
         imported_at: metadata.imported_at,
+        progress_updated_at: progress.updated_at,
+        progress_device_id: progress.device_id,
     }
 }
 
@@ -507,6 +520,7 @@ fn get_library_state(app: AppHandle) -> Result<LibraryState, String> {
     let Some(settings) = load_app_settings(&app)? else {
         return Ok(LibraryState {
             library_dir: None,
+            device_id: None,
             books: Vec::new(),
         });
     };
@@ -515,6 +529,7 @@ fn get_library_state(app: AppHandle) -> Result<LibraryState, String> {
     let books = scan_library_dir(&library_dir)?;
     Ok(LibraryState {
         library_dir: Some(settings.library_dir),
+        device_id: Some(configured_device_id(&app)?),
         books,
     })
 }
@@ -531,12 +546,13 @@ fn set_library_directory(app: AppHandle, path: String) -> Result<LibraryState, S
         &AppSettings {
             schema_version: 1,
             library_dir: library_dir.to_string_lossy().to_string(),
-            device_id: Some(device_id),
+            device_id: Some(device_id.clone()),
         },
     )?;
     let books = scan_library_dir(&library_dir)?;
     Ok(LibraryState {
         library_dir: Some(library_dir.to_string_lossy().to_string()),
+        device_id: Some(device_id),
         books,
     })
 }
@@ -576,6 +592,7 @@ fn import_epub_blocking(app: &AppHandle, source_path: String) -> Result<BookReco
             percentage: 0.0,
             finished: false,
             updated_at: Utc::now().to_rfc3339(),
+            device_id: Some(device_id.clone()),
         };
         write_json(
             &device_progress_path(&library_dir, &id, &device_id),
@@ -628,6 +645,7 @@ fn set_book_finished(
         progress.chapter_href = None;
     }
     progress.updated_at = Utc::now().to_rfc3339();
+    progress.device_id = Some(device_id.clone());
     write_json(
         &device_progress_path(&library_dir, &book_id, &device_id),
         &progress,
@@ -701,6 +719,7 @@ fn save_progress(app: AppHandle, input: SaveProgressInput) -> Result<(), String>
         percentage: input.percentage.clamp(0.0, 1.0),
         finished: input.percentage >= 0.995,
         updated_at: Utc::now().to_rfc3339(),
+        device_id: Some(device_id),
     };
     write_json(&path, &progress)
 }
@@ -1022,6 +1041,7 @@ mod tests {
             percentage: 0.42,
             finished: false,
             updated_at: "2026-08-25T10:00:00Z".to_string(),
+            device_id: None,
         };
         write_json(&path, &expected).unwrap();
         let newer = ProgressFile {

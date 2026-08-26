@@ -13,10 +13,13 @@ export type BookRecord = {
   cfi: string | null;
   chapterHref: string | null;
   importedAt: string;
+  progressUpdatedAt?: string;
+  progressDeviceId?: string | null;
 };
 
 export type LibraryState = {
   libraryDir: string | null;
+  deviceId?: string | null;
   books: BookRecord[];
 };
 
