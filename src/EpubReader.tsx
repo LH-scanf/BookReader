@@ -3,11 +3,10 @@ import {
   Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal,
   Sun, X,
 } from "lucide-react";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
+import { installPreciseMapping } from "./reader/precise-mapping";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isDesktopApp, loadAnnotations, persistProgress, readBookBytes, saveAnnotation } from "./library-api";
+import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, saveAnnotation } from "./library-api";
 import type {
   AnnotationInput, AnnotationRecord, BookRecord, ReaderTheme, ReadingMode,
 } from "./types";
@@ -40,6 +39,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const epubBookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const pendingNavigationRef = useRef<Promise<void>>(Promise.resolve());
   const displayedCfiRef = useRef<string | null>(book.cfi);
   const observedProgressAtRef = useRef(Date.parse(book.progressUpdatedAt ?? "") || 0);
   const localNavigationAtRef = useRef(0);
@@ -95,17 +95,25 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   useEffect(() => { void refreshNotes().catch((reason) => setReaderMessage(String(reason))); }, [refreshNotes]);
 
   useEffect(() => {
-    if (!isDesktopApp()) return;
+    let disposed = false;
     let timer: number | null = null;
     let unlisten: (() => void) | undefined;
-    void listen("library-changed", () => {
+    void subscribeLibraryChanges(() => {
       if (timer) clearTimeout(timer);
       timer = window.setTimeout(() => void refreshNotes().catch(() => undefined), 450);
-    }).then((cleanup) => { unlisten = cleanup; });
-    return () => { if (timer) clearTimeout(timer); unlisten?.(); };
+    }).then((cleanup) => { if (disposed) cleanup(); else unlisten = cleanup; }).catch((error) => setReaderMessage(String(error)));
+    return () => { disposed = true; if (timer) clearTimeout(timer); unlisten?.(); };
   }, [refreshNotes]);
 
-  const flushProgress = useCallback(async () => {
+  const flushProgress = useCallback(async (refreshLocation = false) => {
+    if (refreshLocation && !previewingRef.current && renditionRef.current) {
+      await pendingNavigationRef.current;
+      const location = await renditionRef.current?.currentLocation() as unknown as LocationEvent | undefined;
+      if (location?.start?.cfi) {
+        const { cfi, href, percentage } = location.start;
+        lastProgressRef.current = { cfi, href, percentage: percentage ?? epubBookRef.current?.locations.percentageFromCfi(cfi) ?? 0 };
+      }
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = null;
     const last = lastProgressRef.current;
@@ -113,22 +121,17 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   }, [book.id]);
 
   useEffect(() => {
-    if (!isDesktopApp()) return;
-    let allowClose = false;
-    let cleanup: (() => void) | undefined;
-    void getCurrentWindow().onCloseRequested(async (event) => {
-      if (allowClose) return;
-      event.preventDefault();
-      await flushProgress().catch(() => undefined);
-      allowClose = true;
-      await getCurrentWindow().destroy();
-    }).then((value) => { cleanup = value; });
-    return () => cleanup?.();
+    let disposed = false; let cleanup: (() => void) | undefined;
+    void subscribeBeforeClose(async () => {
+      try { await flushProgress(isDesktopApp()); }
+      catch (error) { setReaderMessage(`保存失败：${String(error)}`); throw error; }
+    }).then((fn) => { if (disposed) fn(); else cleanup = fn; }).catch((error) => setReaderMessage(String(error)));
+    return () => { disposed = true; cleanup?.(); };
   }, [flushProgress]);
 
   const openNotesWorkspace = useCallback(async () => {
-    await flushProgress().catch(() => undefined);
-    onOpenNotesRef.current();
+    try { await flushProgress(true); onOpenNotesRef.current(); }
+    catch (error) { setReaderMessage(`保存失败：${String(error)}，请重试后再离开`); }
   }, [flushProgress]);
 
   const closePanels = useCallback(() => {
@@ -140,7 +143,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     localNavigationAtRef.current = Date.now();
     const rendition = renditionRef.current;
     if (!rendition) return;
-    void rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
+    pendingNavigationRef.current = rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
   }, []);
 
   const handleKey = useCallback((event: KeyboardEvent) => {
@@ -269,7 +272,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           width: "100%", height: "100%",
           flow: readingMode === "paged" ? "paginated" : "scrolled-doc",
           overflow: readingMode === "paged" ? "hidden" : "scroll",
-          manager: "default", spread: "none", infinite: false,
+          manager: "default", spread: "none", infinite: false, allowScriptedContent: false,
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode);
@@ -288,6 +291,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         };
 
         rendition.on("rendered", (_section: unknown, contents: EpubContents) => {
+          installPreciseMapping(rendition);
           applyReaderTheme(rendition, themeRef.current, viewer);
           applyHighlights(rendition, annotationsRef.current, themeRef.current);
           appliedHighlightCfisRef.current = annotationsRef.current.map((record) => record.cfiRange);
@@ -296,9 +300,21 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("keydown", handleKey);
             contents.document.addEventListener("click", (event) => void followInternalLink(event, contents));
             contents.document.addEventListener("wheel", onWheel, { passive: false });
+            let touch: { x: number; y: number; at: number } | null = null;
+            contents.document.addEventListener("touchstart", (event) => {
+              localNavigationAtRef.current = Date.now();
+              touch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: Date.now() } : null;
+            }, { passive: true });
+            contents.document.addEventListener("touchend", (event) => {
+              const start = touch; touch = null;
+              if (!start || readingMode !== "paged" || event.changedTouches.length !== 1 || Date.now() - start.at > 600 || contents.window.getSelection()?.toString()) return;
+              const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y;
+              if (Math.abs(dx) >= 60 && Math.abs(dy) < 40) turnPage(dx < 0 ? "next" : "prev");
+            }, { passive: true });
           }
         });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
+          if (!isDesktopApp()) return;
           const selection = contents.window.getSelection();
           const quote = selection?.toString().replace(/\s+/g, " ").trim();
           if (!quote || !selection?.rangeCount) return;
@@ -319,7 +335,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           lastProgressRef.current = { cfi, href, percentage: next };
           onProgressRef.current(book.id, next, cfi, href);
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = window.setTimeout(() => void persistProgress({ bookId: book.id, cfi, chapterHref: href, percentage: next }), 700);
+          const save = () => void persistProgress({ bookId: book.id, cfi, chapterHref: href, percentage: next }).catch((error) => setReaderMessage(`保存失败：${String(error)}`));
+          if (isDesktopApp()) saveTimerRef.current = window.setTimeout(save, 700);
+          else save();
         });
         viewer.addEventListener("wheel", onWheel, { passive: false });
         removeViewerWheel = () => viewer.removeEventListener("wheel", onWheel);
@@ -456,13 +474,16 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     finally { setSearching(false); }
   };
 
-  const leaveReader = async () => { await flushProgress().catch(() => undefined); onBack(); };
+  const leaveReader = async () => {
+    try { await flushProgress(true); onBack(); }
+    catch (error) { setReaderMessage(`保存失败：${String(error)}，请重试后再离开`); }
+  };
   const closeOtherPanels = () => { setTocOpen(false); setSettingsOpen(false); setSearchOpen(false); };
 
   return (
     <div className={`reader reader-${readerTheme} mode-${readingMode}`} onClick={() => setFootnote(null)}>
       <header className="reader-toolbar">
-        <div className="reader-toolbar-side"><button className="toolbar-button" onClick={() => void leaveReader()}><ArrowLeft size={18} />返回书库</button><button className={`toolbar-button icon-only ${tocOpen ? "selected" : ""}`} aria-label="打开章节目录" onClick={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }}><Menu size={19} /></button></div>
+        <div className="reader-toolbar-side"><button className="toolbar-button" onClick={() => void leaveReader()} aria-label="返回书库"><ArrowLeft size={18} /><span className="back-label">返回书库</span></button><button className={`toolbar-button icon-only ${tocOpen ? "selected" : ""}`} aria-label="打开章节目录" onClick={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }}><Menu size={19} /></button></div>
         <div className="reader-title"><strong title={book.title}>{book.title}</strong><span>{chapter}</span></div>
         <div className="reader-toolbar-side toolbar-right"><button className={`toolbar-button icon-only ${searchOpen ? "selected" : ""}`} aria-label="书内搜索" title="书内搜索 Ctrl+F" onClick={() => { const next = !searchOpen; closeOtherPanels(); setSearchOpen(next); }}><Search size={18} /></button><button className="toolbar-button icon-only" aria-label="打开整书笔记页面" title="整书笔记 N" onClick={() => void openNotesWorkspace()}><NotebookPen size={18} /></button><button className={`toolbar-button icon-only ${settingsOpen ? "selected" : ""}`} aria-label="阅读设置" onClick={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }}><SlidersHorizontal size={19} /></button></div>
       </header>

@@ -1,8 +1,13 @@
 node_modules/
 dist/
+dist-desktop/
 src-tauri/target/
 *.log
 .idea/
 .vscode/
 .playwright-cli/
 output/playwright/
+.env
+.env.*
+!.env.example
+coverage/

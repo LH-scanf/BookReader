@@ -129,6 +129,66 @@ struct BookNoteFile {
     updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleOperation {
+    schema_version: u32,
+    id: String,
+    book_id: String,
+    device_id: String,
+    action: String,
+    restores: Vec<String>,
+    created_at: String,
+}
+
+fn lifecycle_operations(library: &Path, book_id: &str) -> Result<Vec<LifecycleOperation>, String> {
+    validate_book_id(book_id)?;
+    let directory = library.join("lifecycle").join(book_id);
+    if !directory.exists() { return Ok(Vec::new()); }
+    let mut records = Vec::new();
+    for entry in fs::read_dir(directory).map_err(|e| format!("无法读取删除记录：{e}"))? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") { continue; }
+        let op: LifecycleOperation = read_json(&path)?;
+        if op.schema_version != 1 || op.book_id != book_id
+            || path.file_stem().and_then(|s| s.to_str()) != Some(op.id.as_str())
+            || Uuid::parse_str(&op.id).is_err() || Uuid::parse_str(&op.device_id).is_err()
+            || !["delete", "restore"].contains(&op.action.as_str())
+            || op.restores.iter().any(|id| Uuid::parse_str(id).is_err())
+            || chrono::DateTime::parse_from_rfc3339(&op.created_at).is_err() {
+            return Err("删除/恢复记录损坏，已停止加载以保护书库".to_string());
+        }
+        records.push(op);
+    }
+    Ok(records)
+}
+
+fn active_deletions(records: &[LifecycleOperation]) -> Vec<String> {
+    let restored: std::collections::HashSet<&str> = records.iter()
+        .filter(|op| op.action == "restore").flat_map(|op| op.restores.iter().map(String::as_str)).collect();
+    records.iter().filter(|op| op.action == "delete" && !restored.contains(op.id.as_str()))
+        .map(|op| op.id.clone()).collect()
+}
+
+fn ensure_book_active(library: &Path, book_id: &str) -> Result<(), String> {
+    if !active_deletions(&lifecycle_operations(library, book_id)?).is_empty() {
+        return Err("图书已删除，请先从回收站恢复".to_string());
+    }
+    Ok(())
+}
+
+fn write_lifecycle(library: &Path, book_id: &str, device_id: String, restore: bool) -> Result<(), String> {
+    let deleted = active_deletions(&lifecycle_operations(library, book_id)?);
+    if restore && deleted.is_empty() { return Ok(()); }
+    if !restore && !deleted.is_empty() { return Ok(()); }
+    let op = LifecycleOperation {
+        schema_version: 1, id: Uuid::new_v4().to_string(), book_id: book_id.to_string(), device_id,
+        action: if restore { "restore" } else { "delete" }.to_string(),
+        restores: if restore { deleted } else { Vec::new() }, created_at: Utc::now().to_rfc3339(),
+    };
+    write_json(&library.join("lifecycle").join(book_id).join(format!("{}.json", op.id)), &op)
+}
+
 fn app_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
@@ -345,6 +405,10 @@ fn book_record(library_dir: &Path, metadata: BookMetadata, progress: ProgressFil
 }
 
 fn scan_library_dir(library_dir: &Path) -> Result<Vec<BookRecord>, String> {
+    scan_library_filtered(library_dir, false)
+}
+
+fn scan_library_filtered(library_dir: &Path, deleted: bool) -> Result<Vec<BookRecord>, String> {
     let books_dir = library_dir.join("books");
     if !books_dir.exists() {
         return Ok(Vec::new());
@@ -364,6 +428,10 @@ fn scan_library_dir(library_dir: &Path) -> Result<Vec<BookRecord>, String> {
         let Ok(metadata) = read_json::<BookMetadata>(&metadata_path) else {
             continue;
         };
+        if !active_deletions(&lifecycle_operations(library_dir, &metadata.id)?).is_empty() != deleted {
+            continue;
+        }
+        if !book_dir.join("book.epub").exists() { continue; }
         let progress = latest_progress(library_dir, &metadata.id);
         books.push(book_record(library_dir, metadata, progress));
     }
@@ -683,24 +751,26 @@ fn delete_book(app: AppHandle, book_id: String) -> Result<(), String> {
     if !book_dir.exists() {
         return Err("图书不存在或已经被删除".to_string());
     }
-    fs::remove_dir_all(book_dir).map_err(|error| format!("无法删除图书：{error}"))?;
-    for related in ["progress", "annotations"] {
-        let path = library_dir.join(related).join(&book_id);
-        if path.exists() {
-            fs::remove_dir_all(path)
-                .map_err(|error| format!("无法删除图书{related}数据：{error}"))?;
-        }
-    }
-    let note_path = library_dir.join("notes").join(format!("{book_id}.json"));
-    if note_path.exists() {
-        fs::remove_file(note_path).map_err(|error| format!("无法删除整书笔记：{error}"))?;
-    }
-    Ok(())
+    write_lifecycle(&library_dir, &book_id, configured_device_id(&app)?, false)
+}
+
+#[tauri::command]
+fn list_deleted_books(app: AppHandle) -> Result<Vec<BookRecord>, String> {
+    if load_app_settings(&app)?.is_none() { return Ok(Vec::new()); }
+    scan_library_filtered(&configured_library_dir(&app)?, true)
+}
+
+#[tauri::command]
+fn restore_deleted_book(app: AppHandle, book_id: String) -> Result<(), String> {
+    let library = configured_library_dir(&app)?;
+    write_lifecycle(&library, &book_id, configured_device_id(&app)?, true)
 }
 
 #[tauri::command]
 fn read_book_base64(app: AppHandle, book_id: String) -> Result<String, String> {
     let library_dir = configured_library_dir(&app)?;
+    validate_book_id(&book_id)?;
+    ensure_book_active(&library_dir, &book_id)?;
     let path = library_dir.join("books").join(book_id).join("book.epub");
     let data = fs::read(path).map_err(|error| format!("无法读取图书：{error}"))?;
     Ok(BASE64.encode(data))
@@ -710,6 +780,7 @@ fn read_book_base64(app: AppHandle, book_id: String) -> Result<String, String> {
 fn save_progress(app: AppHandle, input: SaveProgressInput) -> Result<(), String> {
     validate_book_id(&input.book_id)?;
     let library_dir = configured_library_dir(&app)?;
+    ensure_book_active(&library_dir, &input.book_id)?;
     let device_id = configured_device_id(&app)?;
     let path = device_progress_path(&library_dir, &input.book_id, &device_id);
     let progress = ProgressFile {
@@ -970,6 +1041,8 @@ pub fn run() {
             set_book_finished,
             rename_book,
             delete_book,
+            list_deleted_books,
+            restore_deleted_book,
             list_annotations,
             save_annotation,
             delete_annotation,
@@ -987,6 +1060,43 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+    #[test]
+    fn soft_delete_and_restore_preserve_files_and_unseen_deletions() {
+        let root = std::env::temp_dir().join(format!("bookreader-lifecycle-test-{}", Uuid::new_v4()));
+        let id = Uuid::new_v4().to_string();
+        let device = Uuid::new_v4().to_string();
+        let epub = root.join("books").join(&id).join("book.epub");
+        fs::create_dir_all(epub.parent().unwrap()).unwrap();
+        fs::write(&epub, b"unchanged epub").unwrap();
+        let note = root.join("notes").join(format!("{id}.json"));
+        write_json(&note, &serde_json::json!({"summary":"preserve notes"})).unwrap();
+        write_lifecycle(&root, &id, device.clone(), false).unwrap();
+        assert!(ensure_book_active(&root, &id).is_err());
+        assert_eq!(fs::read(&epub).unwrap(), b"unchanged epub");
+        assert!(note.exists());
+        write_lifecycle(&root, &id, device.clone(), true).unwrap();
+        assert!(ensure_book_active(&root, &id).is_ok());
+        let mut records = lifecycle_operations(&root, &id).unwrap();
+        let unseen = LifecycleOperation { schema_version: 1, id: Uuid::new_v4().to_string(), book_id: id.clone(),
+            device_id: device, action: "delete".to_string(), restores: vec![], created_at: "2020-01-01T00:00:00Z".to_string() };
+        let expected = unseen.id.clone();
+        records.push(unseen);
+        assert_eq!(active_deletions(&records), vec![expected]);
+        // This is a uniquely generated test fixture, never the user's library.
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_lifecycle_is_not_silently_ignored() {
+        let root = std::env::temp_dir().join(format!("bookreader-lifecycle-test-{}", Uuid::new_v4()));
+        let id = Uuid::new_v4().to_string();
+        let path = root.join("lifecycle").join(&id).join(format!("{}.json", Uuid::new_v4()));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"{broken").unwrap();
+        assert!(ensure_book_active(&root, &id).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn extracts_metadata_and_cover_from_epub() {

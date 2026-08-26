@@ -1,0 +1,52 @@
+import { InteractionRequiredAuthError, PublicClientApplication } from "@azure/msal-browser";
+import { database } from "../storage/database";
+
+const scopes = ["Files.ReadWrite.AppFolder"];
+export const authConfigured = () => /^[0-9a-f-]{36}$/i.test(import.meta.env.VITE_MS_CLIENT_ID ?? "");
+let clientPromise: Promise<PublicClientApplication> | undefined;
+export function microsoftClient() {
+  if (!authConfigured()) throw new Error("尚未配置微软应用 Client ID；本地阅读仍可使用");
+  return clientPromise ??= (async () => {
+    const client = new PublicClientApplication({
+      auth: { clientId: import.meta.env.VITE_MS_CLIENT_ID, authority: "https://login.microsoftonline.com/consumers",
+        redirectUri: `${location.origin}/`, navigateToLoginRequestUrl: false },
+      cache: { cacheLocation: "localStorage" },
+    });
+    await client.initialize();
+    const result = await client.handleRedirectPromise();
+    if (result?.account) client.setActiveAccount(result.account);
+    return client;
+  })();
+}
+export async function accountInfo() {
+  if (!authConfigured()) return null;
+  const client = await microsoftClient();
+  return client.getActiveAccount() ?? client.getAllAccounts()[0] ?? null;
+}
+export async function requireAccount() {
+  const account = await accountInfo();
+  if (!account) throw new Error("请先登录微软账号");
+  const tx = (await database()).transaction("settings", "readwrite");
+  const bound = await tx.store.get("boundAccount");
+  if (bound && bound !== account.homeAccountId) {
+    await tx.done;
+    throw new Error("本机书库绑定了另一个微软账号。为防止串号上传，请登录原账号；切换账号需另行备份并清理站点数据");
+  }
+  // A single local library is deliberately pinned; sign-out never silently rebinds it.
+  if (!bound) await tx.store.put(account.homeAccountId, "boundAccount");
+  await tx.done;
+  return account;
+}
+export async function signIn() { await (await microsoftClient()).loginRedirect({ scopes, prompt: "select_account" }); }
+export async function signOut() {
+  const account = await accountInfo();
+  await (await microsoftClient()).logoutRedirect({ account, postLogoutRedirectUri: `${location.origin}/` });
+}
+export async function accessToken() {
+  const client = await microsoftClient(); const account = await requireAccount();
+  try { return (await client.acquireTokenSilent({ scopes, account })).accessToken; }
+  catch (error) {
+    if (error instanceof InteractionRequiredAuthError) throw new Error("微软登录已过期，请点击登录重新授权；本机待上传数据已保留");
+    throw error;
+  }
+}

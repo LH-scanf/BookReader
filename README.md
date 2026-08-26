@@ -2,6 +2,16 @@
 
 BookReader 是一款面向 Windows 的本地优先 EPUB 阅读器，使用 Tauri 2、React、TypeScript、Rust 和 epub.js 构建。
 
+当前开发分支新增 Web/PWA（`0.3.0-alpha.1`）：同一套 React 界面支持浏览器本地导入与阅读、软删除/恢复、离线启动，并已接入可配置的微软登录与 OneDrive 同步代码。真实云端和 iPhone 验收尚未完成，不是正式发布版。
+
+- [PWA 开发与验证记录](docs/PWA-DEVELOPMENT.md)
+- [微软配置、Cloudflare Pages 部署与 iPhone 验收](docs/PWA-DEPLOYMENT.md)
+- Web 开发：`npm run dev`；生产构建：`npm run build`，输出 `dist/`。
+- 桌面前端构建：`npm run build:desktop`，输出 `dist-desktop/`；Tauri 打包会自动调用它。
+- Web 回归：`npm test`；Rust 回归：`cargo test --manifest-path src-tauri/Cargo.toml --lib`。
+
+尚未配置 `VITE_MS_CLIENT_ID` 时可正常使用本机书库，不能登录或同步。请勿在同步前清理站点数据。手机与新版桌面端删书均移入回收站，暂不永久清除文件；请勿让旧桌面版本操作同一正式书库。
+
 ## 当前功能
 
 - 现代卡片式书库，可折叠侧边栏与固定设置入口

@@ -15,6 +15,7 @@ export type BookRecord = {
   importedAt: string;
   progressUpdatedAt?: string;
   progressDeviceId?: string | null;
+  cached?: boolean;
 };
 
 export type LibraryState = {

@@ -2,6 +2,8 @@
 
 > 2026-08-26：PWA 开发前固定桌面源码基线 `v0.2.4`；本次仅归档现有改动与需求，不实现 PWA 或发布到远端。新阶段需求见 [PWA 首版需求与开发前基线](PWA-PLAN.md)，既有功能验收状态仍以 Bug 时间线为准。
 
+> 后续开发已在 `codex/pwa-foundation` 开始，当前版本为 `0.3.0-alpha.1`。上段说明的是基线归档操作，不代表当前开发状态。实际实现与验证见 [PWA 开发记录](PWA-DEVELOPMENT.md)，账号配置和发布步骤见 [PWA 部署与验收](PWA-DEPLOYMENT.md)。尚未正式发布或完成 iPhone/真实云端验收。
+
 ## 1. 产品目标
 
 BookReader 是一款面向 Windows 的本地优先 EPUB 阅读器。

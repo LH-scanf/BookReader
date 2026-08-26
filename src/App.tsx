@@ -23,17 +23,18 @@ import {
   X,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
+import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, subscribeLibraryChanges, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 
+const CloudSettings = lazy(() => import("./CloudSettings"));
+const TrashSettings = lazy(() => import("./TrashSettings"));
 const EpubReader = lazy(() => import("./EpubReader"));
 type Appearance = "light" | "dark";
 
 function App() {
   const [appearance, setAppearance] = useState<Appearance>(() => document.documentElement.dataset.appearance === "dark" ? "dark" : "light");
   const [view, setView] = useState<View>("library");
-  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem("sidebar-open") !== "false");
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 720 && localStorage.getItem("sidebar-open") !== "false");
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [search, setSearch] = useState("");
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null);
@@ -43,6 +44,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => { if (view === "reader" && !activeBook) setView("library"); }, [view, activeBook]);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -63,11 +66,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isDesktopApp()) return;
     let disposed = false;
     let timer: number | null = null;
     let unlisten: (() => void) | undefined;
-    void listen("library-changed", () => {
+    void subscribeLibraryChanges(() => {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         void loadLibrary().then((next) => {
@@ -75,13 +77,13 @@ function App() {
           setLibrary(next);
           setActiveBook((current) => {
             if (!current) return null;
-            return next.books.find((book) => book.id === current.id) ?? current;
+            return next.books.find((book) => book.id === current.id) ?? null;
           });
         }).catch((reason) => {
           if (!disposed) setMessage(reason instanceof Error ? reason.message : String(reason));
         });
       }, 350);
-    }).then((cleanup) => { unlisten = cleanup; });
+    }).then((cleanup) => { if (disposed) cleanup(); else unlisten = cleanup; }).catch((reason) => { if (!disposed) setMessage(String(reason)); });
     return () => {
       disposed = true;
       if (timer) window.clearTimeout(timer);
@@ -108,7 +110,7 @@ function App() {
     try {
       const imported = await chooseAndImportEpubs();
       if (imported.length) {
-        setLibrary((current) => ({ ...current, books: [...imported.reverse(), ...current.books] }));
+        setLibrary(await loadLibrary());
         setMessage(`已导入 ${imported.length} 本图书`);
       }
     } catch (reason) {
@@ -142,13 +144,13 @@ function App() {
   };
 
   const removeBook = async (book: BookRecord) => {
-    if (!window.confirm(`确定从书库删除《${book.title}》吗？\n\n这会删除书库中的 EPUB、封面和阅读进度。`)) return;
+    if (!window.confirm(`确定从书库删除《${book.title}》吗？\n\n图书将移入回收站，EPUB、封面、进度和笔记保留，可在设置中恢复。同步启用后会影响其他设备。`)) return;
     setBusy(true);
     setMessage(null);
     try {
       await deleteBook(book.id);
       setLibrary((current) => ({ ...current, books: current.books.filter((item) => item.id !== book.id) }));
-      setMessage(`已从书库删除《${book.title}》`);
+      setMessage(`已将《${book.title}》移入回收站`);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -208,6 +210,7 @@ function App() {
 
   return (
     <div className={`app-shell ${sidebarOpen ? "sidebar-is-open" : "sidebar-is-closed"}`}>
+      {sidebarOpen && <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />}
       <aside className="library-sidebar">
         <div className="sidebar-heading">
           <BookOpen size={20} />
@@ -215,13 +218,13 @@ function App() {
           <button className="icon-button sidebar-collapse" aria-label="收起侧边栏" onClick={() => setSidebarOpen(false)}><PanelLeftClose size={18} /></button>
         </div>
         <nav className="sidebar-nav" aria-label="书库导航">
-          <button className={view === "library" && filter === "all" ? "active" : ""} onClick={() => { setView("library"); setFilter("all"); }}><Library size={18} /><span>我的书库</span></button>
-          <button className={view === "library" && filter === "finished" ? "active" : ""} onClick={() => { setView("library"); setFilter("finished"); }}><CheckCircle2 size={18} /><span>已读</span></button>
-          <button className={view === "notes" ? "active" : ""} onClick={() => setView("notes")}><NotebookPen size={18} /><span>整书笔记</span></button>
+          <button className={view === "library" && filter === "all" ? "active" : ""} onClick={() => { setView("library"); setFilter("all"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><Library size={18} /><span>我的书库</span></button>
+          <button className={view === "library" && filter === "finished" ? "active" : ""} onClick={() => { setView("library"); setFilter("finished"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><CheckCircle2 size={18} /><span>已读</span></button>
+          <button className={view === "notes" ? "active" : ""} onClick={() => { setView("notes"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><NotebookPen size={18} /><span>整书笔记</span></button>
         </nav>
         <div className="sidebar-footer">
-          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}><Settings size={18} /><span>设置</span></button>
-          {sidebarOpen && library.libraryDir && <div className="sidebar-sync"><span className="sync-dot" />书库目录已连接</div>}
+          <button className={view === "settings" ? "active" : ""} onClick={() => { setView("settings"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><Settings size={18} /><span>设置</span></button>
+          {sidebarOpen && library.libraryDir && <div className="sidebar-sync"><span className="sync-dot" />{isDesktopApp() ? "书库目录已连接" : "本机离线书库"}</div>}
         </div>
       </aside>
 
@@ -371,10 +374,10 @@ function BookCard({ book, menuOpen, onToggleMenu, onOpen, onRename, onChangeCove
   const percent = Math.round(book.progress * 100);
   return (
     <article className="book-card" onClick={onOpen} tabIndex={0} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-      <div className="cover-with-menu"><Cover book={book} /><button className="book-menu" aria-label={`${book.title}的更多操作`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}><MoreHorizontal size={18} /></button>{menuOpen && <div className="context-menu book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button><button onClick={onRename}><Pencil size={16} />重命名</button><button onClick={onChangeCover}><ImageIcon size={16} />更换封面</button><button onClick={onRestoreCover}><RotateCcw size={16} />恢复自动封面</button><button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button><div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
+      <div className="cover-with-menu"><Cover book={book} /><button className="book-menu" aria-label={`${book.title}的更多操作`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}><MoreHorizontal size={18} /></button>{menuOpen && <div className="context-menu book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button>{isDesktopApp() && <><button onClick={onRename}><Pencil size={16} />重命名</button><button onClick={onChangeCover}><ImageIcon size={16} />更换封面</button><button onClick={onRestoreCover}><RotateCcw size={16} />恢复自动封面</button></>}<button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button>{!isDesktopApp() && book.cached && <button onClick={() => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }}>移除本机下载</button>}<div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
       <div className="book-meta"><h3>{book.title}</h3><p>{book.author}</p></div>
       <div className="card-progress"><span style={{ width: `${percent}%` }} /></div>
-      <div className="progress-label"><span>{book.finished ? "已读" : percent ? `已阅读 ${percent}%` : "未读"}</span></div>
+      <div className="progress-label">{!isDesktopApp() && <span>{book.cached ? "已下载 · " : "云端 · "}</span>}<span>{book.finished ? "已读" : percent ? `已阅读 ${percent}%` : "未读"}</span></div>
     </article>
   );
 }
@@ -438,11 +441,10 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    if (!isDesktopApp()) return;
     let disposed = false;
     let timer: number | null = null;
     let unlisten: (() => void) | undefined;
-    void listen("library-changed", () => {
+    void subscribeLibraryChanges(() => {
       if (disposed) return;
       if (timer) clearTimeout(timer);
       timer = window.setTimeout(() => void refresh(true), 450);
@@ -515,7 +517,7 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
 
   return (
     <div className="notes-workspace-page">
-      <header className="notes-workspace-header"><div><p className="eyebrow">阅读与思考</p><h1>整书笔记</h1><p>每本书的总结、摘录和感悟都集中在这里，可随时编辑。</p></div></header>
+      <header className="notes-workspace-header"><div><p className="eyebrow">阅读与思考</p><h1>整书笔记</h1><p>{isDesktopApp() ? "每本书的总结、摘录和感悟都集中在这里，可随时编辑。" : "查看同步的总结、摘录和感悟；首版请在桌面端编辑。"}</p></div></header>
       {!books.length ? <div className="empty-state"><NotebookPen size={28} /><h3>还没有可记录的图书</h3><p>导入一本 EPUB 并开始阅读后，就可以建立整书笔记。</p></div> : (
         <div className="notes-workspace">
           <aside className="notes-book-list" aria-label="选择图书">
@@ -525,8 +527,8 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
             <fieldset className="notes-editor-body" disabled={savingId !== null}>
             {loadingNotes || !selectedBook || !note || note.bookId !== selectedId ? <div className="notes-loading"><span className="loading-spinner" />正在读取笔记…</div> : <>
               <div className="notes-editor-title"><div><span>当前图书</span><h2>{selectedBook.title}</h2><p>{selectedBook.author} · {annotations.length} 条摘录</p></div><button className="secondary-button" onClick={() => onOpenQuote(selectedBook, null)}><BookOpen size={16} />打开图书</button></div>
-              <label className="notes-summary-editor"><span>读后总结</span><textarea value={summary} onChange={(event) => { summaryDirtyRef.current = true; setSummary(event.target.value); }} placeholder="记录你对整本书的理解、问题和收获……" /><button className="primary-button" disabled={savingId === "summary" || summary === note.summary} onClick={() => void saveSummary()}><Save size={15} />{savingId === "summary" ? "保存中…" : "保存总结"}</button></label>
-              <div className="notes-records"><div className="notes-records-heading"><h3>原文与感悟</h3><span>{annotations.length} 条</span></div>{annotations.length ? annotations.map((record) => <article key={record.id} className="notes-record-card"><button className="notes-original" onClick={() => onOpenQuote(selectedBook, record.cfiRange)}><Highlighter size={17} /><blockquote>{record.quote}</blockquote><span>回到原文</span></button><label><span>我的感悟</span><textarea value={reflectionDrafts[record.id] ?? ""} onChange={(event) => { reflectionDirtyRef.current.add(record.id); setReflectionDrafts((current) => ({ ...current, [record.id]: event.target.value })); }} placeholder="写下对这段原文的理解……" /></label><footer><small>{record.chapterTitle || record.chapterHref}</small><div><button className="quiet-button destructive-text" disabled={savingId === record.id} onClick={() => void deleteRecord(record)}><Trash2 size={14} />删除</button><button className="secondary-button" disabled={savingId === record.id || (reflectionDrafts[record.id] ?? "") === record.reflection} onClick={() => void saveReflection(record)}><Save size={14} />{savingId === record.id ? "保存中…" : "保存感悟"}</button></div></footer></article>) : <div className="notes-empty-large"><Highlighter size={24} /><p>还没有摘录。阅读时选中一段正文，即可添加高亮或记录感悟。</p></div>}</div>
+              <label className="notes-summary-editor"><span>读后总结</span><textarea readOnly={!isDesktopApp()} value={summary} onChange={(event) => { summaryDirtyRef.current = true; setSummary(event.target.value); }} placeholder="记录你对整本书的理解、问题和收获……" /><button className="primary-button" disabled={!isDesktopApp() || savingId === "summary" || summary === note.summary} onClick={() => void saveSummary()}><Save size={15} />{savingId === "summary" ? "保存中…" : "保存总结"}</button></label>
+              <div className="notes-records"><div className="notes-records-heading"><h3>原文与感悟</h3><span>{annotations.length} 条</span></div>{annotations.length ? annotations.map((record) => <article key={record.id} className="notes-record-card"><button className="notes-original" onClick={() => onOpenQuote(selectedBook, record.cfiRange)}><Highlighter size={17} /><blockquote>{record.quote}</blockquote><span>回到原文</span></button><label><span>我的感悟</span><textarea readOnly={!isDesktopApp()} value={reflectionDrafts[record.id] ?? ""} onChange={(event) => { reflectionDirtyRef.current.add(record.id); setReflectionDrafts((current) => ({ ...current, [record.id]: event.target.value })); }} placeholder="写下对这段原文的理解……" /></label><footer><small>{record.chapterTitle || record.chapterHref}</small><div><button className="quiet-button destructive-text" disabled={!isDesktopApp() || savingId === record.id} onClick={() => void deleteRecord(record)}><Trash2 size={14} />删除</button><button className="secondary-button" disabled={!isDesktopApp() || savingId === record.id || (reflectionDrafts[record.id] ?? "") === record.reflection} onClick={() => void saveReflection(record)}><Save size={14} />{savingId === record.id ? "保存中…" : "保存感悟"}</button></div></footer></article>) : <div className="notes-empty-large"><Highlighter size={24} /><p>还没有摘录。阅读时选中一段正文，即可添加高亮或记录感悟。</p></div>}</div>
             </>}
             </fieldset>
           </section>
@@ -540,11 +542,12 @@ function SettingsView({ libraryDir, busy, onSelectLibrary, appearance, onAppeara
   return (
     <div className="settings-page">
       <p className="eyebrow">BookReader</p><h1>设置</h1>
-      <section className="settings-card">
+      {isDesktopApp() ? <section className="settings-card">
         <div><h2>书库与同步</h2><p>书籍、进度和未来的批注会保存在这个普通文件夹中。</p></div>
         <div className="directory-row"><div><span>当前书库目录</span><code>{libraryDir ?? "尚未选择"}</code></div><button className="secondary-button" disabled={busy} onClick={onSelectLibrary}>{libraryDir ? "切换目录" : "选择目录"}</button></div>
         <div className="status-row">{libraryDir ? <><span className="sync-dot" />目录可用；可交由 OneDrive 等工具同步</> : "选择目录后才能导入图书"}</div>
-      </section>
+      </section> : <Suspense fallback={<p>正在加载同步设置…</p>}><CloudSettings /></Suspense>}
+      <Suspense fallback={null}><TrashSettings /></Suspense>
       <section className="settings-card appearance-card"><div><h2>外观</h2><p>应用于书库、整书笔记和设置，自动记住选择。阅读页的明亮、纸张和夜间主题独立设置。</p></div><div className="appearance-options" role="group" aria-label="应用外观"><button aria-pressed={appearance === "light"} onClick={() => onAppearanceChange("light")}><Sun size={18} />浅色</button><button aria-pressed={appearance === "dark"} onClick={() => onAppearanceChange("dark")}><Moon size={18} />深色</button></div></section>
     </div>
   );

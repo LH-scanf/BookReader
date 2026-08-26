@@ -2,6 +2,17 @@
 
 状态约定：**已定位** → **已修改** → **构建通过** → **用户验收通过**。未经验收，不写“彻底解决”。
 
+## BUG-20260826-04 · 中文跨页 CFI 恢复回到上一页（v0.3.0-alpha.1）
+
+- **状态**：已定位、已修改，生成的 EPUB 已通过本机 Chromium 交互回归，iPhone 和真实图书仍待验收。
+- **复现**：390×844 视口翻到第二页，保存并重新打开，横向页偏移由 338px 回到 0px。
+- **根因**：epub.js 0.3.x `Mapping.splitTextNodeIntoRanges` 按空格拆词，中文长段落跨列后仍可能映射到段首。`manager.currentLocation()` 内部还会执行 `updateLayout → setLayout` 重建 Mapping，所以只在 rendered 时修补一次不足以生效。
+- **修复**：对单个 rendition 的 `setLayout` 做局部适配，在每次重建 Mapping 后为中文文本生成按 Unicode 字符的 Range，保留 UTF-16 CFI 偏移、不拆开代理对；英文继续使用原逻辑，不改全局原型或 node_modules。
+- **证据**：同一测试书第二页从 `epubcfi(/6/2!/4/8/1:0)` 改为 `epubcfi(/6/2!/4/8/1:53)`，重开前后页偏移均为 338px，CFI 相同。
+- **补充保护**：用户返回书库或打开笔记前等待已发起的翻页，并读取当前实际位置再落盘，避免 DOM 已翻页而 relocated 尚未发出时保存旧位置。
+- **影响文件**：`src/reader/precise-mapping.ts`、`src/EpubReader.tsx`；单元回归：`tests/reader.test.ts`。
+- **风险**：适配依赖 epub.js 0.3.x 的内部 Mapping 接口，升级必须重跑中文分页和滚动恢复测试；超长单文本节点性能仍需实际图书验证。
+
 ## BUG-20260826-03 · 整书笔记切换图书后回跳（v0.2.4）
 
 - **状态**：已定位、已修改、v0.2.4 构建通过，待用户验收。
