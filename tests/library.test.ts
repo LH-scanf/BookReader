@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { activeDeletions, parseLifecycle, type LifecycleOperation } from "../src/library/protocol";
 import { database, writeDocuments, acknowledge, deviceId } from "../src/storage/database";
-import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation } from "../src/library/WebProvider";
+import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation, importEpub } from "../src/library/WebProvider";
 import { readFile, storeFile, removeCachedFile } from "../src/storage/files";
 
 const id = "10000000-0000-4000-8000-000000000001";
@@ -24,6 +25,17 @@ describe("delete/restore protocol", () => {
   });
 });
 describe("local library and durable queue", () => {
+  it("imports a real EPUB with intact bytes and queues its metadata and content", async () => {
+    const bytes = readFileSync("tests/fixtures/bookreader-sync-smoke.epub");
+    const file = new File([bytes], "bookreader-sync-smoke.epub", { type: "application/epub+zip" });
+    // Node's File polyfill returns an ArrayBuffer from a different realm than jsdom/JSZip.
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(new Uint8Array(bytes).buffer);
+    const book = await importEpub(file);
+    expect(book).toMatchObject({ title: "BookReader 同步验收 2026-08-26", author: "BookReader 测试样本", cached: true });
+    expect(new Uint8Array(await readBookBytes(book.id))).toEqual(new Uint8Array(bytes));
+    const queue = await (await database()).getAll("queue");
+    expect(queue.map((entry) => entry.path).sort()).toEqual([`books/${book.id}/book.epub`, `books/${book.id}/metadata.json`]);
+  });
   it("falls back to IndexedDB when OPFS exists without createWritable (Safari 17)", async () => {
     const previous = navigator.storage;
     Object.defineProperty(navigator, "storage", { configurable: true, value: { getDirectory: async () => ({ getFileHandle: async () => ({}), removeEntry: vi.fn(async () => undefined) }) } });

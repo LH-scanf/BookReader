@@ -100,6 +100,12 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 6. “移除本机下载”不能删除云端图书，未上传成功的本机 EPUB 不能移除。
 7. 测试分页左右滑动、目录、滚动、横竖屏、长按选字、主题、较大 EPUB 和存储空间不足。
 
+### 可复用的测试 EPUB
+
+仓库包含 `tests/fixtures/bookreader-sync-smoke.epub`，书名为“BookReader 同步验收 2026-08-26”，两章原创内容，无个人资料、无第三方作品。可用 `python scripts/make-smoke-epub.py` 重新生成。
+
+真实同步验收时，通过“导入图书”选择该文件，等到“已同步到 OneDrive”后阅读并保存位置；使用该书菜单“移除本机下载”，确认变为云端图书，再打开验证重新下载。最后仅对这本测试书进行软删除、同步、设置中的回收站恢复和再次同步。不要对正式图书做删除实验，也不要清空网站数据。单浏览器重新打开不等于双设备进度同步已通过。
+
 ## 6. 当前限制与安全边界
 
 ### 首次连接出现 HTTP 403
@@ -134,7 +140,7 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 ### 其他限制
 
-- 本轮是 alpha：没有真实 Graph 联调、iPhone 真机验收或正式部署，不能称为最终交付版。
+- 本轮是 alpha：真实 Graph 已完成撤权后的 AppFolder-only 访问、建库和首本导入同步；尚未完成下载往返、双端进度、iPhone 真机验收或正式部署，不能称为最终交付版。
 - 单本导入/下载上限 100 MB；还需用实际复杂 EPUB 检查 iPhone 内存峰值。不支持 DRM。
 - OPFS 有可用的异步写入接口时保存二进制文件，否则降级 IndexedDB Blob。Safari 17 暴露 OPFS 不代表具备 `createWritable`。不保证系统永不清理缓存；持久存储申请可能不获准。
 - 首次及文件夹 cTag 变化时枚举目录，cTag 不变时复用快照；最长 5 分钟重新全扫，cTag 缺失则每轮全扫。按 eTag 仅下载变更 JSON/封面，未实现 Graph delta 游标；需先确认 AppFolder 权限及限定书库范围的实际支持，不自动申请全盘权限。
