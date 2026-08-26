@@ -233,3 +233,13 @@
 - 与此前 AppFolder 的 GET/PUT 均为 403 相比，加入 Files.ReadWrite 后相同目录读写成功，支持权限范围相关行为差异；尚不能确定是初始化问题或特定微软回归，也不能宣告完整同步代码已验证。
 - 下一步需要用户从 Entra 移除 Files.ReadWrite，并在微软个人账号应用授权管理撤销 BookReader 已获授权。用户确认后再清理 MSAL 缓存、仅授权 AppFolder、强制刷新并核对 scope 元数据后复测。当前未执行撤权、AppFolder-only 复测或解除同步锁。
 - 本轮仅新增实测记录，没有改业务代码；沿用 `f56055c` 的 63 项测试及两种构建结果，未重复运行测试。真实同步与 iPhone 验收仍未完成。
+
+## 2026-08-26 · 撤权后的 AppFolder-only 复测成功
+
+- 用户明确确认“已撤权”。通过实验步骤 5 清理当前账号 MSAL 缓存，再仅请求 Files.ReadWrite.AppFolder 交互授权；浏览器回跳后执行步骤 6，强制刷新取得 token，不解码、不输出 token。
+- MSAL 新范围元数据为 `Files.ReadWrite.AppFolder`、`openid`、`profile`，不含 Files.ReadWrite、User.Read 或其他文件范围。此项是客户端 MSAL 元数据检查；服务端授权撤销操作由用户确认。
+- 2026-08-26 07:37:27 UTC（北京时间 15:37），GET `/me/drive/special/approot` 返回 **200**。客户端请求编号 `a03950fc-9029-4ecc-8f64-af91b3fc4e5d`；服务端请求编号 `f30dbc9f-20e8-428c-a118-e92113066b49`。
+- 本次实际观察到：原 AppFolder GET/PUT 均 403 → 含 Files.ReadWrite 的 GET 200 / PUT 201 → 探针 DELETE 204 → 用户撤权、清理登录缓存、重新授权后 AppFolder-only GET 200。该现象支持权限范围/应用目录初始化路径相关的差异，但不能单凭此实验认定具体服务端缺陷或与未核实的公开 issue 同因。
+- 随后步骤 7 再次强制刷新核对范围，成功结束实验。浏览器显示 `finished`，正常同步锁已解除，自动同步开关保持未勾选；没有执行同步引擎，没有创建 BookReaderLibrary，没有新导入/上传/删除图书。
+- [完整实验 JSON](diagnostics/onedrive-wide-experiment-2026-08-26.json) 已补齐复测记录与最终状态。旧宽权限 scope 列表仅为历史实验元数据，不代表当前 token 仍有该权限。
+- 当前账号应用目录 GET 的 403 已不再复现。下一步仍需在 AppFolder 下验证 BookReaderLibrary 建库、目录枚举、上传/下载、双端进度和 iPhone；GET 200 不等于完整同步验收通过。版本维持 `0.3.0-alpha.1`，未部署或推送。本轮仅更新诊断和文档，未重复运行代码测试。

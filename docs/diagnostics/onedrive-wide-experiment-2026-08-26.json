@@ -1,5 +1,5 @@
 {
-  "phase": "broad-done",
+  "phase": "finished",
   "records": [
     {
       "step": "Files.ReadWrite: GET approot",
@@ -27,6 +27,15 @@
       "date": null,
       "observedAt": "2026-08-26T07:33:34.944Z",
       "error": null
+    },
+    {
+      "step": "AppFolder-only: GET approot after revocation",
+      "status": 200,
+      "clientRequestId": "a03950fc-9029-4ecc-8f64-af91b3fc4e5d",
+      "requestId": "f30dbc9f-20e8-428c-a118-e92113066b49",
+      "date": null,
+      "observedAt": "2026-08-26T07:37:27.664Z",
+      "error": null
     }
   ],
   "broadScopes": [
@@ -36,5 +45,11 @@
     "Files.ReadWrite.AppFolder",
     "User.Read"
   ],
-  "cleanupUncertain": false
+  "cleanupUncertain": false,
+  "narrowScopes": [
+    "Files.ReadWrite.AppFolder",
+    "openid",
+    "profile"
+  ],
+  "narrowStatus": 200
 }
