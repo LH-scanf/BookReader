@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { getSetting } from "../src/storage/database";
 
-const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn() }));
+const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn(), silent: vi.fn() }));
 vi.mock("@azure/msal-browser", () => ({
   InteractionRequiredAuthError: class extends Error {},
   PublicClientApplication: class {
@@ -10,7 +10,7 @@ vi.mock("@azure/msal-browser", () => ({
     async handleRedirectPromise() { return null; }
     getActiveAccount() { return state.account; }
     getAllAccounts() { return [state.account]; }
-    async acquireTokenSilent() { return { scopes: state.scopes, accessToken: "test-access-token" }; }
+    async acquireTokenSilent(request: unknown) { state.silent(request); return { scopes: state.scopes, accessToken: "test-access-token" }; }
   },
 }));
 it("requests explicit re-consent using only the existing app-folder scope", async () => {
@@ -35,6 +35,19 @@ it("pins the local library to one account and rejects a different account withou
   await expect(requireAccount()).rejects.toThrow("另一个微软账号");
   expect(await getSetting("boundAccount")).toBe("personal-a");
   vi.unstubAllEnvs();
+});
+it("keeps User.Read restricted to explicit diagnostics and validates both granted scopes", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  try {
+    const { authorizeGraphDiagnostics, diagnosticAccessToken } = await import("../src/auth/microsoft");
+    await authorizeGraphDiagnostics();
+    expect(state.redirect).toHaveBeenLastCalledWith({ scopes: ["User.Read", "Files.ReadWrite.AppFolder"], prompt: "consent" });
+    state.scopes = ["Files.ReadWrite.AppFolder"];
+    await expect(diagnosticAccessToken()).rejects.toThrow("诊断需要 User.Read");
+    state.scopes = ["https://graph.microsoft.com/User.Read", "Files.ReadWrite.AppFolder"];
+    await expect(diagnosticAccessToken()).resolves.toBe("test-access-token");
+    expect(state.silent).toHaveBeenLastCalledWith({ scopes: ["User.Read", "Files.ReadWrite.AppFolder"], account: state.account });
+  } finally { vi.unstubAllEnvs(); }
 });
 it.each(["Files.ReadWrite.AppFolder", "https://graph.microsoft.com/Files.ReadWrite.AppFolder"])("accepts granted app-folder scope metadata: %s", async (scope) => {
   vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001"); state.scopes = [scope];

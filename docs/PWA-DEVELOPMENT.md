@@ -162,3 +162,51 @@
 - 真实云端同步仍阻塞，部署及 iPhone 验收未完成。对照验证前必须取得用户明确同意，并由用户亲自完成微软授权；本轮没有提交外部支持工单。
 
 参考：[特殊目录权限与请求路径](https://learn.microsoft.com/en-us/graph/api/drive-get-specialfolder?view=graph-rest-1.0)、[Files.ReadWrite 权限范围](https://learn.microsoft.com/en-us/graph/permissions-reference#filesreadwrite)、[OneDrive issue #1667](https://github.com/OneDrive/onedrive-api-docs/issues/1667)。
+
+## 2026-08-26 · 用户指定的最小文件权限诊断
+
+- 用户明确不扩大 OneDrive 文件权限，要求依次查看完整 innerError、增加 User.Read 做同 token 身份对照、在应用目录内尝试探针 PUT。此项替代上一轮尚未执行的宽权限对照建议。
+- 所有 Graph 认证请求增加唯一 `client-request-id`；错误诊断保留嵌套 error/innerError，过滤凭证键、令牌回显、邮箱和 URL。保留响应头 request-id/date、客户端编号和本机 UTC observedAt；响应头不可读时为 null，不伪装成服务端时间。超过 16 KiB 或无法解析时明确标注，不声称完整。
+- 设置页新增诊断面板，结果显示为可复制 JSON 并输出到控制台；不输出请求头、token 或成功 /me 响应中的个人资料。普通登录/同步继续只请求 AppFolder，User.Read 仅用于显式诊断授权及取 token。
+- 身份对照每轮只获取一次不透明 token，依次请求 /me 和 approot。仅 /me 成功、approot 返回 403 且勾选允许探针时，执行 PUT `approot:/__bookreader_probe.txt:/content?@microsoft.graph.conflictBehavior=fail`，正文为 `BookReader probe`。同名不覆盖、不自动删除；PUT 成功后才再 GET approot。不操作同步队列，不扩展文件权限，不自动重复诊断。
+- 第一阶段真实结果见下：完整 innerError 没有 serviceReadOnly、Database Is Read Only、itemDisabledDueToPendingProvisioning 或 User is pending provisioning。不能据此确认或排除服务端回归。
+
+```json
+{
+  "step": "GET approot",
+  "status": 403,
+  "clientRequestId": "81611f59-7b22-4fc3-b815-4b2c7baddb1b",
+  "requestId": "aa060d8f-a4cb-4227-8871-87043a5e41ab",
+  "date": null,
+  "observedAt": "2026-08-26T07:09:20.377Z",
+  "error": {
+    "code": "accessDenied",
+    "message": "Access denied",
+    "innerError": {
+      "date": "2026-08-26T07:09:20",
+      "request-id": "aa060d8f-a4cb-4227-8871-87043a5e41ab",
+      "client-request-id": "81611f59-7b22-4fc3-b815-4b2c7baddb1b"
+    }
+  }
+}
+```
+
+- 第二阶段首次调用 MSAL 请求 User.Read + AppFolder 时返回需要交互授权。打开诊断授权入口后，浏览器随后已回跳；再次运行成功取得包含两项范围的 token，实际结果如下。没有代用户接受微软授权，也没有读取或解析 token。
+- 用户引用的 #1929/#1930 原始页面在本轮浏览工具中无法获取，搜索也未能核实内容；不把“8 月 23 日新回归”写成已确认事实。
+- `npm test`：54 项通过；Web 和桌面前端构建通过；类型检查通过。测试覆盖嵌套错误保留与凭证过滤、同 token 顺序、每请求独立编号、探针同名保护、失败不重试及诊断范围与普通同步隔离。真实 403 仍未解决，版本保持 alpha。
+
+参考：[Graph client-request-id 建议](https://learn.microsoft.com/en-us/graph/best-practices-concept#reliability-and-support)、[应用目录与最小权限](https://learn.microsoft.com/en-us/graph/onedrive-sharepoint-appfolder)。
+
+### 同 token 实验最终结果
+
+2026-08-26 07:12:13–07:12:15 UTC（北京时间 15:12），同一张通过 MSAL 取得的 token：
+
+| 请求 | HTTP | 结果 |
+| --- | --- | --- |
+| GET /me | 200 | Graph 接受 token 并允许身份读取；不记录个人资料 |
+| GET /me/drive/special/approot | 403 | accessDenied / Access denied |
+| PUT approot:/__bookreader_probe.txt:/content（同名则失败） | 403 | accessDenied / Access denied |
+
+完整脱敏元数据和 error/innerError 见 [诊断 JSON](diagnostics/onedrive-2026-08-26.json)。两次 403 的 innerError 都只有 date、request-id、client-request-id，没有只读或 provisioning 错误码。响应头 date 在浏览器中为 null，错误正文中有服务端 date。
+
+结论：Graph 已接受同一 token 的身份请求，AppFolder 的 GET 与 PUT 仍被拒绝；探针初始化未解决问题。不能据此证明具体服务端根因，不能证明命中未核实的 #1929/#1930，也不能排除全部授权问题。没有成功写入探针的响应，未继续 GET 重试、未上传书库或修改本机队列。OneDrive 网页新建文件仍未测试。用户要求的本轮三阶段诊断已执行，真实同步仍未恢复。

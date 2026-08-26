@@ -1,0 +1,45 @@
+[
+  {
+    "step": "GET /me",
+    "status": 200,
+    "clientRequestId": "22c3de58-cf4b-4af4-9065-51d19dced394",
+    "requestId": "bc5df8c6-3ae2-4b5f-9e11-e8f67a20fbd2",
+    "date": null,
+    "observedAt": "2026-08-26T07:12:13.456Z",
+    "error": null
+  },
+  {
+    "step": "GET /me/drive/special/approot",
+    "status": 403,
+    "clientRequestId": "f6b90319-acbc-41de-9bc4-e2f4146a8147",
+    "requestId": "5589b4b7-fce4-47cd-9a16-2150b0108d75",
+    "date": null,
+    "observedAt": "2026-08-26T07:12:14.028Z",
+    "error": {
+      "code": "accessDenied",
+      "message": "Access denied",
+      "innerError": {
+        "date": "2026-08-26T07:12:14",
+        "request-id": "5589b4b7-fce4-47cd-9a16-2150b0108d75",
+        "client-request-id": "f6b90319-acbc-41de-9bc4-e2f4146a8147"
+      }
+    }
+  },
+  {
+    "step": "PUT /me/drive/special/approot:/__bookreader_probe.txt:/content?@microsoft.graph.conflictBehavior=fail",
+    "status": 403,
+    "clientRequestId": "5411e770-478f-443e-b396-4e0f8d458174",
+    "requestId": "5f47a962-2830-4885-b5bd-72d968d0bc29",
+    "date": null,
+    "observedAt": "2026-08-26T07:12:15.147Z",
+    "error": {
+      "code": "accessDenied",
+      "message": "Access denied",
+      "innerError": {
+        "date": "2026-08-26T07:12:15",
+        "request-id": "5f47a962-2830-4885-b5bd-72d968d0bc29",
+        "client-request-id": "5411e770-478f-443e-b396-4e0f8d458174"
+      }
+    }
+  }
+]

@@ -4,6 +4,7 @@ import { storeFile } from "../src/storage/files";
 import { synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
 import * as microsoftAuth from "../src/auth/microsoft";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
+import { runGraphDiagnostics, type DiagnosticEntry } from "../src/sync/diagnostics";
 
 const bookId = "10000000-0000-4000-8000-000000000001";
 const device = "20000000-0000-4000-8000-000000000001";
@@ -133,6 +134,52 @@ it.each(["<html>upstream error</html>", "x".repeat(17000)])("keeps the HTTP fail
   expect(failure).toBeInstanceOf(GraphError);
   expect((failure as GraphError).retryAfter).toBe(12);
   expect((failure as GraphError).diagnostic).toMatchObject({ operation: "读取目录内容", code: undefined, detail: undefined });
+  expect((failure as GraphError).diagnostic?.trace?.bodyNote).toBeTruthy();
+});
+it("preserves nested innerError and correlation metadata but excludes credentials from diagnostics", async () => {
+  const requestId = crypto.randomUUID(); const emit = vi.fn();
+  const innerError = { code: "serviceReadOnly", message: "Database Is Read Only", date: "2026-08-26T08:00:00Z",
+    "request-id": requestId, innerError: { code: "itemDisabledDueToPendingProvisioning", message: "User is pending provisioning" } };
+  const request = vi.fn(async () => new Response(JSON.stringify({ error: { code: "accessDenied", innerError,
+    Authorization: "Bearer hidden", access_token: "hidden", id_token: "hidden", echoed: "opaque-test-token", extra: { refresh_token: "hidden" } } }),
+    { status: 403, headers: { "request-id": requestId, date: "Wed, 26 Aug 2026 08:00:00 GMT" } }));
+  await expect(new GraphClient(async () => "opaque-test-token", request, emit).json("/me/drive/special/approot")).rejects.toThrow("HTTP 403");
+  expect(emit).toHaveBeenCalledWith(expect.objectContaining({ status: 403, requestId, date: "Wed, 26 Aug 2026 08:00:00 GMT",
+    clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/), error: expect.objectContaining({ innerError }) }));
+  expect(JSON.stringify(emit.mock.calls)).not.toMatch(/Authorization|access_token|id_token|refresh_token|opaque-test-token|hidden/);
+  const options = (request.mock.calls as unknown as [string, RequestInit][])[0][1];
+  expect((options.headers as Record<string, string>)["client-request-id"]).toBe(emit.mock.calls[0][0].clientRequestId);
+});
+it("uses one token in order for identity, failed root, non-overwriting probe and successful root retry", async () => {
+  const getToken = vi.fn(async () => "same-opaque-token"); const entries: DiagnosticEntry[] = [];
+  const responses = [new Response(JSON.stringify({ mail: "private@example.test" })),
+    new Response(JSON.stringify({ error: { code: "accessDenied" } }), { status: 403 }),
+    new Response(JSON.stringify({ id: "probe" }), { status: 201 }), new Response(JSON.stringify({ id: "approot" }))];
+  const request = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => responses.shift()!);
+  await runGraphDiagnostics(true, true, (entry) => entries.push(entry), getToken, request);
+  expect(getToken).toHaveBeenCalledTimes(1);
+  expect(request.mock.calls.map(([url]) => String(url).replace("https://graph.microsoft.com/v1.0", ""))).toEqual([
+    "/me", "/me/drive/special/approot",
+    "/me/drive/special/approot:/__bookreader_probe.txt:/content?@microsoft.graph.conflictBehavior=fail", "/me/drive/special/approot",
+  ]);
+  expect(request.mock.calls[2][1]).toMatchObject({ method: "PUT", body: "BookReader probe" });
+  for (const [, init] of request.mock.calls) expect((init!.headers as Record<string, string>).Authorization).toBe("Bearer same-opaque-token");
+  expect(entries.map((entry) => entry.status)).toEqual([200, 403, 201, 200]);
+  expect(new Set(entries.map((entry) => entry.clientRequestId)).size).toBe(4);
+  expect(JSON.stringify(entries)).not.toMatch(/private@example|same-opaque-token|Authorization/);
+});
+it.each([
+  { compare: false, allow: true, statuses: [403], calls: 1 },
+  { compare: true, allow: true, statuses: [403], calls: 1 },
+  { compare: true, allow: false, statuses: [200, 403], calls: 2 },
+  { compare: true, allow: true, statuses: [200, 200], calls: 2 },
+  { compare: true, allow: true, statuses: [200, 429], calls: 2 },
+  { compare: true, allow: true, statuses: [200, 403, 403], calls: 3 },
+  { compare: true, allow: true, statuses: [200, 403, 409], calls: 3 },
+])("bounds diagnostic requests and never retries failures: $statuses", async ({ compare, allow, statuses, calls }) => {
+  const request = vi.fn(async () => new Response("{}", { status: statuses.shift()! }));
+  await runGraphDiagnostics(compare, allow, () => undefined, async () => "test-token", request);
+  expect(request).toHaveBeenCalledTimes(calls);
 });
 it("downloads signed URLs without an Authorization header", async () => {
   const request = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ id: "file", name: "a", eTag: "1", size: 2, "@microsoft.graph.downloadUrl": "https://download.example/file" })))

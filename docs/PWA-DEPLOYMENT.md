@@ -110,6 +110,14 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 参考：[MSAL prompt 参数行为](https://learn.microsoft.com/en-us/entra/identity-platform/msal-js-prompt-behavior)。
 
+### 最小文件权限的手动诊断
+
+在设置中展开“OneDrive 诊断”，先点击“读取 AppFolder 错误详情”，保存 JSON 中的 error/innerError、两端请求编号和时间。浏览器未能读取响应头时 date/requestId 可以是 null，innerError 中仍可能有服务端信息。敏感字段会过滤；过大或非 JSON 错误会标明限制。
+
+若需验证同一 token 是否被 Graph 接受，点击“授权身份对照诊断”，亲自确认 User.Read + Files.ReadWrite.AppFolder，再回到面板点击“运行同 token 对照”。这是身份读取权限，不是全盘文件权限；普通同步 scope 不变。成功的 /me 响应不记录个人资料。
+
+只有显式勾选探针选项，才会在 /me 成功且 approot 返回 403 后写入应用目录内的 `__bookreader_probe.txt`。同名则失败，不覆盖、不删除；成功后再次读取 approot。默认不勾选，不自动执行，也不上传本机书库。遇到授权交互错误时，需完成微软授权再运行，而不是把它当成 Graph /me 失败。结果仅保存在页面内存及控制台，跳转前请复制需要保留的诊断；不要分享浏览器令牌或完整网络请求头。
+
 ### 其他限制
 
 - 本轮是 alpha：没有真实 Graph 联调、iPhone 真机验收或正式部署，不能称为最终交付版。

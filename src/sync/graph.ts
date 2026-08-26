@@ -2,7 +2,9 @@ import { accessToken } from "../auth/microsoft";
 
 const BASE = "https://graph.microsoft.com/v1.0";
 export type DriveItem = { id: string; name: string; eTag: string; cTag?: string; size?: number; folder?: object; file?: { mimeType?: string }; parentReference?: { id?: string }; webUrl?: string; "@microsoft.graph.downloadUrl"?: string };
-type GraphDiagnostic = { operation: string; code?: string; detail?: string; requestId?: string };
+export type GraphTrace = { status: number; clientRequestId: string | null; requestId: string | null; date: string | null;
+  observedAt: string; error: unknown; bodyNote?: string };
+type GraphDiagnostic = { operation: string; code?: string; detail?: string; requestId?: string; trace?: GraphTrace };
 export class GraphError extends Error {
   constructor(public status: number, public retryAfter: number, public diagnostic?: GraphDiagnostic) {
     super((status === 429 ? `OneDrive 请求过多，请稍后重试（${retryAfter} 秒）` : `OneDrive 请求失败（HTTP ${status}），本机数据已保留`)
@@ -16,23 +18,49 @@ function safeErrorText(value: unknown) {
     .replace(/Bearer\s+\S+/gi, "[凭证已省略]").replace(/[A-Za-z0-9_\-+/=]{64,}/g, "[长标识已省略]")
     .replace(/[\r\n\t]+/g, " ").slice(0, 350);
 }
-async function responseError(response: Response, operation: string) {
+// Preserve nested Graph error structure, but never expose credentials or account details.
+function safeErrorTree(value: unknown, token: string, depth = 0): unknown {
+  if (depth > 20) return "[嵌套过深，已省略]";
+  if (typeof value === "string") {
+    const text = token ? value.split(token).join("[凭证已省略]") : value;
+    return text.replace(/Bearer\s+\S+/gi, "[凭证已省略]")
+      .replace(/(?:access[_-]?token|id[_-]?token|authorization)\s*[:=]\s*[^\s,;]+/gi, "[凭证已省略]")
+      .replace(/https?:\/\/\S+/gi, "[链接已省略]")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[账号已省略]")
+      .replace(/[A-Za-z0-9_\-+/=]{64,}/g, "[长标识已省略]");
+  }
+  if (Array.isArray(value)) return value.map((item) => safeErrorTree(item, token, depth + 1));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/authorization|token|cookie|secret|password/i.test(key))
+    .map(([key, item]) => [key, safeErrorTree(item, token, depth + 1)]));
+  return value;
+}
+function responseTrace(response: Response, clientRequestId: string | null): GraphTrace {
+  return { status: response.status, clientRequestId, requestId: response.headers.get("request-id"),
+    date: response.headers.get("date"), observedAt: new Date().toISOString(), error: null };
+}
+async function responseError(response: Response, operation: string, clientRequestId: string | null = null, token = "") {
   let error: { code?: unknown; message?: unknown; innerError?: { code?: unknown } } | undefined;
-  // Surface only selected, redacted fields; never log response bodies or auth data.
+  const trace = responseTrace(response, clientRequestId);
+  // Bound memory usage; normal Graph innerError objects are retained in full after redaction.
   const reader = response.body?.getReader();
   if (reader) {
     try {
       const chunks: Uint8Array[] = []; let size = 0;
       for (;;) { const chunk = await reader.read(); if (chunk.done) break; size += chunk.value.byteLength; if (size > 16384) break; chunks.push(chunk.value); }
-      if (size <= 16384) error = (JSON.parse(await new Blob(chunks).text()) as { error?: typeof error }).error;
-    } catch { /* Some Graph errors contain HTML or an empty body. */ }
+      if (size <= 16384) {
+        const body = JSON.parse(await new Blob(chunks).text()) as { error?: unknown } | null;
+        trace.error = safeErrorTree(body?.error ?? null, token);
+        if (trace.error && typeof trace.error === "object") error = trace.error;
+      } else trace.bodyNote = "错误正文超过 16 KiB，未记录；不能视为完整响应";
+    } catch { trace.bodyNote = "错误正文为空、非 JSON 或读取失败"; }
     finally { await reader.cancel().catch(() => undefined); }
   }
   const codes = [error?.code, error?.innerError?.code].filter((value): value is string => typeof value === "string" && /^[\w.-]{1,80}$/.test(value));
-  const id = response.headers.get("request-id");
+  const id = trace.requestId;
   return new GraphError(response.status, Number(response.headers.get("Retry-After")) || 60, {
     operation, code: codes.length ? codes.join(" / ") : undefined, detail: safeErrorText(error?.message),
-    requestId: id && /^[0-9a-f-]{36}$/i.test(id) ? id : undefined,
+    requestId: id && /^[0-9a-f-]{36}$/i.test(id) ? id : undefined, trace,
   });
 }
 function operationName(path: string, method = "GET") {
@@ -43,13 +71,19 @@ function operationName(path: string, method = "GET") {
 }
 export class GraphClient {
   // A browser's native fetch requires the global receiver, not this GraphClient.
-  constructor(private token = accessToken, private request: typeof fetch = globalThis.fetch.bind(globalThis)) {}
+  constructor(private token = accessToken, private request: typeof fetch = globalThis.fetch.bind(globalThis),
+    private observe?: (trace: GraphTrace) => void) {}
   async json<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = path.startsWith("https:") ? new URL(path) : new URL(`${BASE}${path}`);
     if (url.origin !== "https://graph.microsoft.com" || !url.pathname.startsWith("/v1.0/")) throw new Error("拒绝不受信任的 Graph 地址");
+    const token = await this.token(); const clientRequestId = crypto.randomUUID();
     const response = await this.request(url.href, { ...init, redirect: "error", signal: AbortSignal.timeout(60000),
-      headers: { "Content-Type": "application/json", ...init.headers, Authorization: `Bearer ${await this.token()}` } });
-    if (!response.ok) throw await responseError(response, operationName(url.pathname, init.method));
+      headers: { "Content-Type": "application/json", ...init.headers, "client-request-id": clientRequestId, Authorization: `Bearer ${token}` } });
+    if (!response.ok) {
+      const error = await responseError(response, operationName(url.pathname, init.method), clientRequestId, token);
+      this.observe?.(error.diagnostic!.trace!); throw error;
+    }
+    this.observe?.(responseTrace(response, clientRequestId));
     return response.json() as Promise<T>;
   }
   async children(id: string) {
