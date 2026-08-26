@@ -1,6 +1,6 @@
 # PWA 本地运行、微软配置与 Cloudflare Pages 部署
 
-适用开发版本：`0.3.0-alpha.1`。当前未发布，真实微软账号与 iPhone 测试仍待完成。
+适用开发版本：`0.3.0-alpha.1`。当前未发布；真实微软账号已完成基础上传/下载联调，双设备与 iPhone 测试仍待完成。
 
 ## 需要用户介入的事项
 
@@ -140,7 +140,7 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 ### 其他限制
 
-- 本轮是 alpha：真实 Graph 已完成撤权后的 AppFolder-only 访问、建库和首本导入同步；尚未完成下载往返、双端进度、iPhone 真机验收或正式部署，不能称为最终交付版。
+- 本轮是 alpha：真实 Graph 已完成撤权后的 AppFolder-only 访问、建库、导入同步及测试 EPUB 下载往返；尚未完成双端进度、iPhone 真机验收或正式部署，不能称为最终交付版。
 - 单本导入/下载上限 100 MB；还需用实际复杂 EPUB 检查 iPhone 内存峰值。不支持 DRM。
 - OPFS 有可用的异步写入接口时保存二进制文件，否则降级 IndexedDB Blob。Safari 17 暴露 OPFS 不代表具备 `createWritable`。不保证系统永不清理缓存；持久存储申请可能不获准。
 - 首次及文件夹 cTag 变化时枚举目录，cTag 不变时复用快照；最长 5 分钟重新全扫，cTag 缺失则每轮全扫。按 eTag 仅下载变更 JSON/封面，未实现 Graph delta 游标；需先确认 AppFolder 权限及限定书库范围的实际支持，不自动申请全盘权限。

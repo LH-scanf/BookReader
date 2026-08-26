@@ -1,0 +1,37 @@
+{
+  "date": "2026-08-26",
+  "environment": "Local development browser at http://localhost:1420/",
+  "version": "0.3.0-alpha.1",
+  "filePermission": "Files.ReadWrite.AppFolder",
+  "evidenceSource": "Application UI interactions against real OneDrive; no tokens or private browser storage inspected",
+  "testBook": {
+    "title": "BookReader 同步验收 2026-08-26",
+    "fixture": "tests/fixtures/bookreader-sync-smoke.epub",
+    "fixtureSha256": "640fdea8875dfacee72bb99748135c16d0be37b277ae69998e62819697791117"
+  },
+  "checks": [
+    { "step": "Import fixture through native file picker", "result": "passed", "observed": "Test book displayed with downloaded status" },
+    { "step": "Read, save and sync", "result": "passed", "observed": "Chapter 2, 71%; application reported synced to OneDrive" },
+    { "step": "Evict only test book EPUB cache", "result": "passed", "observed": "Cloud-only status at 71%; remove-download action disappeared" },
+    { "step": "Open cloud-only book", "result": "passed", "observed": "EPUB downloaded and rendered; chapter 2 and 71% restored from retained local progress" },
+    { "step": "Soft delete", "result": "passed", "observed": "Test book hidden from library, present in Settings trash, then application reported synced to OneDrive" },
+    { "step": "Restore", "result": "passed-after-retry", "observed": "Test book reappeared at 71%; pending operation survived HTTP 504; retry and final progress sync completed; trash empty and application reported synced to OneDrive" },
+    { "step": "Evict and re-download after restore", "result": "passed", "observed": "Cloud-only test book downloaded again and rendered at chapter 2, 71%; original cloud EPUB remained available across soft delete/restore" }
+  ],
+  "transientErrors": [
+    { "status": 504, "code": "UnknownError", "step": "读取云端文件信息", "requestId": "63501196-a202-4f7c-9482-c19e9b368e08", "action": "Manual retry; no data clearing or permission change" }
+  ],
+  "finalState": {
+    "syncMessage": "已同步到 OneDrive",
+    "pendingQueueIndicator": false,
+    "trashMessage": "没有已删除的图书。",
+    "testBook": "Restored, downloaded, chapter 2 at 71%",
+    "nonTestBookProgress": "Unchanged at 3%"
+  },
+  "limitations": [
+    "Same-browser local progress restoration does not prove cross-device progress retrieval",
+    "No cloud download hash extracted; fixture hash describes the local source only",
+    "No permanent book deletion, permission expansion, deployment or changes to the user's non-test book",
+    "iPhone, independent-device sync, cloud notes and concurrent/offline edits remain unverified"
+  ]
+}
