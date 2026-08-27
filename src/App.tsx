@@ -303,7 +303,7 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
     const query = search.trim().toLocaleLowerCase();
     const filtered = books.filter((book) => {
       const matchesFilter = filter === "all" || book.finished;
-      const matchesSearch = !query || `${book.title}${book.author}`.toLocaleLowerCase().includes(query);
+      const matchesSearch = !query || book.title.toLocaleLowerCase().includes(query);
       return matchesFilter && matchesSearch;
     });
     return filtered.sort((left, right) => {
@@ -327,7 +327,7 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
       <header className="library-header">
         <div><p className="eyebrow">个人阅读空间</p><h1>{filter === "finished" ? "已读" : "我的书库"}</h1></div>
         <div className="library-actions">
-          <label className="search-field"><Search size={17} /><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索书名或作者" aria-label="搜索书名或作者" />{search && <button aria-label="清除搜索" onClick={() => onSearch("")}><X size={15} /></button>}</label>
+          <label className="search-field"><Search size={17} /><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索书名" aria-label="搜索书名" />{search && <button aria-label="清除搜索" onClick={() => onSearch("")}><X size={15} /></button>}</label>
           {filter === "all" && <button className="primary-button compact-import-button" disabled={busy} onClick={onImport}><Plus size={16} />{busy ? "导入中…" : "导入图书"}</button>}
         </div>
       </header>

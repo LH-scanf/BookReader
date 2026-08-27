@@ -21,7 +21,7 @@ type ReaderProps = {
   onProgress: (bookId: string, percentage: number, cfi: string | null, chapterHref: string | null) => void;
 };
 type LocationEvent = { start: { cfi: string; href: string; percentage?: number; location?: number } };
-type EpubContents = { document: Document; window: Window };
+type EpubContents = { document: Document; window: Window; cfiFromRange?: (range: Range) => string };
 type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterHref" | "cfiRange"> & { x: number; y: number; annotationId?: string; reflection?: string };
 type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "chapterTitle" | "chapterHref" | "cfiRange">;
 type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: string };
@@ -148,6 +148,23 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const closePanels = useCallback(() => {
     setTocOpen(false); setSettingsOpen(false); setSearchOpen(false);
     setFootnote(null); setSelectionDraft(null);
+  }, []);
+
+  const showSelectionToolbar = useCallback((contents: EpubContents, cfiRange?: string) => {
+    const selection = contents.window.getSelection();
+    const quote = selection?.toString().replace(/\s+/g, " ").trim();
+    if (!quote || !selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const resolvedCfi = cfiRange ?? contents.cfiFromRange?.(range);
+    if (!resolvedCfi) return;
+    const rect = range.getBoundingClientRect();
+    const frame = (contents.window.frameElement as HTMLElement | null)?.getBoundingClientRect();
+    const existing = annotationsRef.current.find((record) => record.cfiRange === resolvedCfi);
+    const rawX = (frame?.left ?? 0) + rect.left + rect.width / 2;
+    const rawY = (frame?.top ?? 0) + rect.bottom + 8;
+    setSelectionDraft({ quote, cfiRange: resolvedCfi, chapterTitle: chapterRef.current, chapterHref: chapterHrefRef.current,
+      annotationId: existing?.id, reflection: existing?.reflection,
+      x: Math.min(window.innerWidth - 120, Math.max(120, rawX)), y: Math.min(window.innerHeight - 54, Math.max(8, rawY)) });
   }, []);
 
   const turnPage = useCallback((direction: "prev" | "next") => {
@@ -323,10 +340,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("click", (event) => void followInternalLink(event, contents), true);
             contents.document.addEventListener("wheel", onWheel, { passive: false });
             let touch: { x: number; y: number; at: number } | null = null;
+            let selectionTimer: number | null = null;
+            const scheduleSelectionToolbar = () => {
+              if (selectionTimer) window.clearTimeout(selectionTimer);
+              selectionTimer = window.setTimeout(() => showSelectionToolbar(contents), 80);
+            };
             contents.document.addEventListener("touchstart", (event) => {
               localNavigationAtRef.current = Date.now();
               touch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: Date.now() } : null;
-            }, { passive: true });
+            }, { passive: false, capture: true });
             contents.document.addEventListener("touchmove", (event) => {
               if (!touch || readingMode !== "paged" || event.touches.length !== 1 || contents.window.getSelection()?.toString()) return;
               if (event.cancelable) event.preventDefault();
@@ -334,25 +356,17 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("touchend", (event) => {
               const start = touch; touch = null;
               if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
+              if (contents.window.getSelection()?.toString()) { scheduleSelectionToolbar(); return; }
               const end = event.changedTouches[0];
               const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, Date.now() - start.at);
               if (direction) { if (event.cancelable) event.preventDefault(); turnPage(direction); }
             }, { passive: false, capture: true });
             contents.document.addEventListener("touchcancel", () => { touch = null; }, { passive: true });
+            contents.document.addEventListener("selectionchange", scheduleSelectionToolbar);
           }
         });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
-          const selection = contents.window.getSelection();
-          const quote = selection?.toString().replace(/\s+/g, " ").trim();
-          if (!quote || !selection?.rangeCount) return;
-          const rect = selection.getRangeAt(0).getBoundingClientRect();
-          const frame = (contents.window.frameElement as HTMLElement | null)?.getBoundingClientRect();
-          const existing = annotationsRef.current.find((record) => record.cfiRange === cfiRange);
-          const rawX = (frame?.left ?? 0) + rect.left + rect.width / 2;
-          const rawY = (frame?.top ?? 0) + rect.bottom + 8;
-          setSelectionDraft({ quote, cfiRange, chapterTitle: chapterRef.current, chapterHref: chapterHrefRef.current,
-            annotationId: existing?.id, reflection: existing?.reflection,
-            x: Math.min(window.innerWidth - 120, Math.max(120, rawX)), y: Math.min(window.innerHeight - 54, Math.max(8, rawY)) });
+          showSelectionToolbar(contents, cfiRange);
         });
         rendition.on("relocated", (location: LocationEvent) => {
           const { cfi, href } = location.start;
@@ -400,7 +414,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [book.id, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, turnPage]);
+  }, [book.id, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, showSelectionToolbar, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
