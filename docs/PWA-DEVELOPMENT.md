@@ -281,3 +281,11 @@
 - 测试站点 <https://bookreader-f2l.pages.dev/> 首次构建成功，来源分支 `codex/pwa-foundation`，构建命令 `npm run build`，输出目录 `dist`，Node 22，设置公开前端 Client ID 环境变量；没有上传 secret 或访问令牌。
 - 公开站点只读检查通过：首页标题 BookReader，登录按钮可用，离线资源就绪提示出现；manifest 为中文 standalone PWA，根路径启动/作用域及 256/512 PNG 图标配置正确；viewport 含 `viewport-fit=cover`，模拟手机尺寸进入抽屉布局且未观察到横向溢出。
 - 本轮未点击生产微软登录，没有访问 OneDrive。必须先由用户在 Entra SPA 回调中登记 `https://bookreader-f2l.pages.dev/`，随后再验证微软登录回跳、真实同步和独立 origin 的首次下载。浏览器尺寸模拟不等于 iPhone 17.5 真机或离线重启验收。
+
+### 生产登录与跨 origin 同步补充验收
+
+- 用户发现生产回调最初位于 Entra 的 Web 平台。BookReader 使用 `@azure/msal-browser` 且没有后端机密客户端，因此按微软 SPA 授权码 + PKCE/CORS 要求，将 `https://bookreader-f2l.pages.dev/` 从 Web 移到单页应用程序平台；localhost 回调继续保留在 SPA。不创建 client secret，不启用隐式授权。
+- 迁移后 Pages 站点成功完成微软登录并显示原个人账号，随即完成首次真实同步，没有出现 redirect URI、CORS、403 或 504 错误。
+- Pages origin 原本为空的本机书库从 OneDrive 拉到两本书及进度：测试书显示云端 71%，另一正式书也可见。只对测试书执行下载验收；从云端打开成功，内容为第二章“重新下载与恢复”，位置 71%。退出后同步成功。
+- 这次结果验证了独立 origin 的元数据、EPUB 下载和跨设备进度读取，不再只是同一浏览器本机进度恢复。未对正式书执行自动化打开、删除或恢复；页面上该书后续显示的进度变化属于用户当前站点交互，不归因于本轮测试动作。
+- 桌面浏览器生产流程已通过。iPhone Safari/主屏幕 PWA 的登录回跳、离线重启、存储降级、手势与横竖屏仍待用户真机验收。

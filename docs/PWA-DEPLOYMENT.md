@@ -90,7 +90,9 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 使用稳定的 HTTPS 地址并在微软应用中登记准确回调。预览域名也必须登记，不能假设任意动态预览域名均可登录。Client ID 是公开配置；密码、client secret、访问令牌均不应出现在 Pages 构建变量或 Git 中。
 
-当前需要在 Entra 的 SPA 重定向 URI 中增加 `https://bookreader-f2l.pages.dev/`（保留结尾 `/`）；本地 `http://localhost:1420/` 继续保留。未登记前不要把生产站点的登录失败归因于 MSAL 或 OneDrive。
+Entra 最初把 `https://bookreader-f2l.pages.dev/` 登记在 Web 平台；用户随后将它移至单页应用程序（SPA）平台并保留结尾 `/`，本地 `http://localhost:1420/` 也继续作为 SPA 回调。BookReader 是纯前端 MSAL public client，不使用 Web 平台回调或 client secret。
+
+迁移后生产站点真实登录回跳成功，首次同步从 OneDrive 拉到两本书。测试书最初为“云端 · 已阅读 71%”，打开时从 OneDrive 下载 EPUB 并恢复到第二章、71%；退出阅读器后的同步也完成。这验证了 localhost origin → OneDrive → Pages origin 的跨 origin 书库、EPUB 和进度传递。仍需在 iPhone Safari/主屏幕应用中复测，因为桌面浏览器的生产验证不能替代 iOS 行为。
 
 `public/_headers` 为入口、manifest、Service Worker 设置重新验证缓存策略。程序更新由用户确认，禁止在阅读中强制刷新。站点数据按 origin 隔离：换域名不会自动迁移离线书库和待上传数据，应先完成同步。
 
