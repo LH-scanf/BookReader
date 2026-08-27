@@ -70,7 +70,7 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 必须使用支持生命周期协议的新版桌面端。`v0.2.4` 及以前版本不识别软删除，并仍可能永久删除文件，不应与本版同时操作同一个正式书库。
 
-## 4. Cloudflare Pages（尚未执行）
+## 4. Cloudflare Pages（测试部署已完成）
 
 连接用户自己的 GitHub 仓库，配置：
 
@@ -84,7 +84,13 @@ node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strict
 
 本版代码在 `codex/pwa-foundation`，`main` 保持原基线。先审阅、推送开发分支并做测试部署，验收后再确定生产分支；不要误把原 `main` 当作新版发布。
 
+2026-08-27 已由用户通过 Cloudflare GitHub 集成发布测试站点：<https://bookreader-f2l.pages.dev/>。Pages 的生产分支为 `codex/pwa-foundation`；此处“生产分支”仅指该测试 Pages 项目的稳定地址，GitHub `main` 与旧版基线仍未改动。首次构建成功。
+
+只读验收确认：HTTPS 首页可打开，生产 Client ID 配置生效并显示微软登录入口；manifest 的名称和短名称均为 BookReader，`display=standalone`、`start_url=/`、`scope=/`，包含 256/512 PNG 图标；页面收到离线资源就绪通知。模拟手机尺寸时启用抽屉导航，页面内容宽度不超过视口。微软生产回跳、真正断网重启和 iPhone 安装仍需后续实测。
+
 使用稳定的 HTTPS 地址并在微软应用中登记准确回调。预览域名也必须登记，不能假设任意动态预览域名均可登录。Client ID 是公开配置；密码、client secret、访问令牌均不应出现在 Pages 构建变量或 Git 中。
+
+当前需要在 Entra 的 SPA 重定向 URI 中增加 `https://bookreader-f2l.pages.dev/`（保留结尾 `/`）；本地 `http://localhost:1420/` 继续保留。未登记前不要把生产站点的登录失败归因于 MSAL 或 OneDrive。
 
 `public/_headers` 为入口、manifest、Service Worker 设置重新验证缓存策略。程序更新由用户确认，禁止在阅读中强制刷新。站点数据按 origin 隔离：换域名不会自动迁移离线书库和待上传数据，应先完成同步。
 

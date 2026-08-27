@@ -273,3 +273,11 @@
 - 504 后手动重试及最后一次退出阅读器的进度同步完成。设置页回收站显示“没有已删除的图书”，底栏显示“已同步到 OneDrive”，没有待同步数量或错误提示。
 - 测试书保持恢复且已下载状态，第二章、71%；正式图书仍为 3%。本轮未复现 403；不能据此保证其他账号永不出现同类权限问题。
 - 基础真实同步验收通过；当前开发版本保持 `0.3.0-alpha.1`，等待推送/测试发布的明确授权及用户 Cloudflare 配置。
+
+## 2026-08-27 · GitHub 推送与 Cloudflare Pages 首次发布
+
+- 用户明确允许推送及测试发布。`codex/pwa-foundation` 已推送到 `origin`，远端与本地均为 `8b93d23`；GitHub `main` 和 `v0.2.4` 基线未改动。
+- Cloudflare CLI 登录会请求 Pages 以外的多项写权限，发现后立即取消，未完成该 OAuth 授权。随后由用户使用 Cloudflare GitHub 集成创建测试 Pages 项目，并限制到 `LH-scanf/BookReader` 仓库。
+- 测试站点 <https://bookreader-f2l.pages.dev/> 首次构建成功，来源分支 `codex/pwa-foundation`，构建命令 `npm run build`，输出目录 `dist`，Node 22，设置公开前端 Client ID 环境变量；没有上传 secret 或访问令牌。
+- 公开站点只读检查通过：首页标题 BookReader，登录按钮可用，离线资源就绪提示出现；manifest 为中文 standalone PWA，根路径启动/作用域及 256/512 PNG 图标配置正确；viewport 含 `viewport-fit=cover`，模拟手机尺寸进入抽屉布局且未观察到横向溢出。
+- 本轮未点击生产微软登录，没有访问 OneDrive。必须先由用户在 Entra SPA 回调中登记 `https://bookreader-f2l.pages.dev/`，随后再验证微软登录回跳、真实同步和独立 origin 的首次下载。浏览器尺寸模拟不等于 iPhone 17.5 真机或离线重启验收。
