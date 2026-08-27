@@ -326,3 +326,11 @@
 - 翻页改为直接订阅 epub.js 已转发的 `rendition` `touchstart` / `touchend` 事件，不再在 iframe 中注册触摸事件或调用 `touchmove.preventDefault()`。判定规则为：550ms 内、横向至少 50px、横向距离大于纵向距离的 1.35 倍、最小横向速度 0.12px/ms；左右各 24px 交给 Safari 系统边缘手势。
 - 阅读根节点和 EPUB iframe 内容区移除 `touch-action: none`，保留固定视口、`overflow: hidden` 与 `overscroll-behavior`。这让 Safari 原生长按选择、拷贝、查询与翻译继续可用；BookReader 的高亮/笔记按钮仍以 epub.js `selected` 为主、`selectionchange` 防抖为回退，并在 iOS 底部展示，不试图覆盖系统菜单。
 - `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过。变更尚需推送和 Cloudflare Pages 发布后在 iPhone 真机复测；桌面模拟触摸不能替代该验收。
+
+## 2026-08-27 · EPUB iframe 沙箱事件诊断
+
+- 由于 iPhone 仍无法翻页或显示自定义选区栏，增加一次可重复、显式开启的生产诊断。默认 `allowScriptedContent` 仍为 `false`；只有 URL 包含 `epubIframeDiagnostic=true` 时才临时传入 `true`，用于比较 iframe 的 `allow-scripts` 沙箱差异。
+- `?epubIframeDiagnostic=false` 与 `?epubIframeDiagnostic=true` 都进入诊断模式：页面固定显示 `touchstart`、`touchend`、`selectionchange`、epub.js `selected` 与选区轮询的累计计数，并用状态提示报告最后收到的事件。诊断模式不会翻页、不会展示笔记栏，也不会写入批注或同步队列。
+- 正常模式新增 250ms 的 `rendition.getContents()` 选区轮询后备路径：只要 WebKit 已建立非折叠原生选区且可转换为 CFI，就调用既有底部高亮/笔记栏。诊断模式下同一逻辑只计数，不改变阅读数据。
+- 此实验不能证明 `allow-scripts` 是长期方案，也不应在完成比对后保留为默认。若两种参数结果确有差异，后续必须先评估 CSP、移除 EPUB `<script>`、内联事件属性和允许脚本的隔离设计，不能直接放开不受信任书籍脚本。
+- `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过；尚待 iPhone Safari 与主屏幕 PWA 的四组真机结果。

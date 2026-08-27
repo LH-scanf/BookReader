@@ -26,6 +26,7 @@ type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterH
 type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "chapterTitle" | "chapterHref" | "cfiRange">;
 type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: string };
 type FootnotePopup = { title: string; text: string; x: number; y: number };
+type IframeDiagnosticEvent = "touchstart" | "touchend" | "selectionchange" | "selected" | "selection-poll";
 
 function flattenToc(items: NavItem[], depth = 0): Array<NavItem & { depth: number }> {
   return items.flatMap((item) => [{ ...item, depth }, ...flattenToc(item.subitems ?? [], depth + 1)]);
@@ -60,6 +61,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const chapterHrefRef = useRef(book.chapterHref ?? "");
   const turnAnimationTimerRef = useRef<number | null>(null);
   const iosWeb = !isDesktopApp() && isIOSWebDevice();
+  // Production-only diagnostic switch. It is intentionally opt-in and does
+  // not change the normal reader's safe sandbox setting.
+  const iframeDiagnosticValue = new URLSearchParams(window.location.search).get("epubIframeDiagnostic");
+  const iframeDiagnostic = iframeDiagnosticValue === "false" || iframeDiagnosticValue === "true";
+  const allowScriptedContent = iframeDiagnosticValue === "true";
 
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -88,6 +94,12 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [toolbarHidden, setToolbarHidden] = useState(false);
   const [showPageNumbers, setShowPageNumbers] = useState(false);
   const [pagePosition, setPagePosition] = useState<{ current: number; total: number } | null>(null);
+  const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
+
+  const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
+    setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
+    setReaderMessage(`${event} 收到`);
+  }, []);
 
   useEffect(() => { onProgressRef.current = onProgress; }, [onProgress]);
   useEffect(() => { onOpenNotesRef.current = onOpenNotes; }, [onOpenNotes]);
@@ -293,6 +305,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   useEffect(() => {
     let cancelled = false;
     let removeViewerWheel: (() => void) | undefined;
+    let selectionPoll: number | undefined;
     const viewer = viewerRef.current;
     if (!viewer) return;
     setLoading(true); setError(null); viewer.replaceChildren();
@@ -311,7 +324,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           width: "100%", height: "100%",
           flow: readingMode === "paged" ? "paginated" : "scrolled-doc",
           overflow: readingMode === "paged" ? "hidden" : "scroll",
-          manager: "default", spread: "none", infinite: false, allowScriptedContent: false,
+          manager: "default", spread: "none", infinite: false, allowScriptedContent,
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode);
@@ -349,7 +362,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
               if (selectionTimer) window.clearTimeout(selectionTimer);
               selectionTimer = window.setTimeout(() => showSelectionToolbar(contents), 300);
             };
-            contents.document.addEventListener("selectionchange", scheduleSelectionToolbar);
+            contents.document.addEventListener("selectionchange", () => {
+              if (iframeDiagnostic) { recordIframeDiagnostic("selectionchange"); return; }
+              scheduleSelectionToolbar();
+            });
           }
         });
 
@@ -357,12 +373,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         // gesture state here avoids listeners being lost as IframeViews change.
         let touch: { x: number; y: number; at: number } | null = null;
         rendition.on("touchstart", (event: TouchEvent) => {
+          if (iframeDiagnostic) { recordIframeDiagnostic("touchstart"); return; }
           localNavigationAtRef.current = Date.now();
           if (event.touches.length !== 1) { touch = null; return; }
           const point = event.touches[0];
           touch = { x: point.clientX, y: point.clientY, at: performance.now() };
         });
         rendition.on("touchend", (event: TouchEvent, contents: EpubContents) => {
+          if (iframeDiagnostic) { recordIframeDiagnostic("touchend"); return; }
           const start = touch;
           touch = null;
           if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
@@ -376,8 +394,29 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         });
         rendition.on("touchcancel", () => { touch = null; });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
+          if (iframeDiagnostic) { recordIframeDiagnostic("selected"); return; }
           showSelectionToolbar(contents, cfiRange);
         });
+        // iOS fallback: inspect the real iframe Selection. In diagnostics it
+        // records detection only; otherwise it opens the existing action bar.
+        let lastPolledCfi: string | null = null;
+        selectionPoll = window.setInterval(() => {
+          const rawContents = rendition.getContents() as unknown as EpubContents[] | EpubContents;
+          const contentsList = Array.isArray(rawContents) ? rawContents : [rawContents];
+          let hasSelection = false;
+          for (const contents of contentsList) {
+            const selection = contents?.window?.getSelection();
+            if (!selection || selection.isCollapsed || !selection.rangeCount) continue;
+            hasSelection = true;
+            const quote = selection.toString().replace(/\s+/g, " ").trim();
+            const cfiRange = contents.cfiFromRange?.(selection.getRangeAt(0));
+            if (!quote || !cfiRange || cfiRange === lastPolledCfi) continue;
+            lastPolledCfi = cfiRange;
+            if (iframeDiagnostic) recordIframeDiagnostic("selection-poll");
+            else showSelectionToolbar(contents, cfiRange);
+          }
+          if (!hasSelection) lastPolledCfi = null;
+        }, 250);
         rendition.on("relocated", (location: LocationEvent) => {
           const { cfi, href } = location.start;
           displayedCfiRef.current = cfi;
@@ -419,12 +458,13 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     return () => {
       cancelled = true;
       removeViewerWheel?.();
+      if (selectionPoll) window.clearInterval(selectionPoll);
       if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
       void flushProgress().catch(() => undefined);
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [book.id, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, showSelectionToolbar, turnPage]);
+  }, [allowScriptedContent, book.id, iframeDiagnostic, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
@@ -563,6 +603,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
+      {iframeDiagnostic && <aside className="iframe-diagnostic" aria-live="polite"><strong>iframe 诊断：allow-scripts {allowScriptedContent ? "开启" : "关闭"}</strong><span>touchstart {iframeDiagnosticEvents.touchstart ?? 0} · touchend {iframeDiagnosticEvents.touchend ?? 0}</span><span>selectionchange {iframeDiagnosticEvents.selectionchange ?? 0} · selected {iframeDiagnosticEvents.selected ?? 0} · poll {iframeDiagnosticEvents["selection-poll"] ?? 0}</span><small>此模式只记录事件，不翻页、不弹出笔记栏。</small></aside>}
 
       {tocOpen && <aside className="reader-panel toc-panel"><PanelHeading title="目录" subtitle={book.title} onClose={() => setTocOpen(false)} /><nav>{flattenToc(toc).map((item) => <button key={`${item.id}-${item.href}`} style={{ paddingLeft: `${11 + item.depth * 14}px` }} onClick={() => void goTo(item.href, item.label)}><span>{item.label}</span></button>)}</nav></aside>}
 
