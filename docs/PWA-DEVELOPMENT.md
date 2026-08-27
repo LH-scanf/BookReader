@@ -318,3 +318,11 @@
 - 长按选区除 epub.js 的 `selected` 事件外，新增原生 `selectionchange` 回退：从选区 Range 生成 CFI 后展示“高亮标记 / 添加笔记”菜单，覆盖 iOS 仅显示系统选区而未触发 epub.js 回调的情况。
 - 隐藏工具栏后的恢复按钮改为右上角固定小方形图标，不再半贴边；书库搜索只搜索书名，输入框改为单行垂直居中，避免移动端占位文字与图标遮挡。
 - 设置页卡片由隐式双列改为紧凑单列流式布局，收紧外观按钮、操作区与标题间距，修复回收站与应用更新标题在窄屏逐字换行的问题。
+
+## 2026-08-27 · iPhone 手势事件链修正
+
+- 复核 epub.js `0.3.93` 源码后确认：`rendition` 的 `rendered` 回调第二个参数是 `IframeView`，不是 `Contents`。此前把它当作 `Contents` 使用会使 iframe 内注册的触摸与选区监听器根本没有挂载。
+- 渲染回调现仅处理主题和高亮；键盘、链接、滚轮和 iOS `selectionchange` 回退改由 `rendition.hooks.content.register(contents => ...)` 在真实 `Contents` 生命周期中注册。
+- 翻页改为直接订阅 epub.js 已转发的 `rendition` `touchstart` / `touchend` 事件，不再在 iframe 中注册触摸事件或调用 `touchmove.preventDefault()`。判定规则为：550ms 内、横向至少 50px、横向距离大于纵向距离的 1.35 倍、最小横向速度 0.12px/ms；左右各 24px 交给 Safari 系统边缘手势。
+- 阅读根节点和 EPUB iframe 内容区移除 `touch-action: none`，保留固定视口、`overflow: hidden` 与 `overscroll-behavior`。这让 Safari 原生长按选择、拷贝、查询与翻译继续可用；BookReader 的高亮/笔记按钮仍以 epub.js `selected` 为主、`selectionchange` 防抖为回退，并在 iOS 底部展示，不试图覆盖系统菜单。
+- `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过。变更尚需推送和 Cloudflare Pages 发布后在 iPhone 真机复测；桌面模拟触摸不能替代该验收。

@@ -329,42 +329,52 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           window.setTimeout(() => { wheelLocked = false; }, 320);
         };
 
-        rendition.on("rendered", (_section: unknown, contents: EpubContents) => {
+        // `rendered` receives an IframeView, not Contents. Keep it for visual
+        // work only; event wiring belongs in the content hook below.
+        rendition.on("rendered", () => {
           installPreciseMapping(rendition);
           applyReaderTheme(rendition, themeRef.current, viewer);
           applyHighlights(rendition, annotationsRef.current, themeRef.current);
           appliedHighlightCfisRef.current = annotationsRef.current.map((record) => record.cfiRange);
+        });
+
+        rendition.hooks.content.register((contents: EpubContents) => {
           if (contents?.document && contents.document.documentElement.dataset.bookreaderBound !== "true") {
             contents.document.documentElement.dataset.bookreaderBound = "true";
             contents.document.addEventListener("keydown", handleKey);
             contents.document.addEventListener("click", (event) => void followInternalLink(event, contents), true);
             contents.document.addEventListener("wheel", onWheel, { passive: false });
-            let touch: { x: number; y: number; at: number } | null = null;
             let selectionTimer: number | null = null;
             const scheduleSelectionToolbar = () => {
               if (selectionTimer) window.clearTimeout(selectionTimer);
-              selectionTimer = window.setTimeout(() => showSelectionToolbar(contents), 80);
+              selectionTimer = window.setTimeout(() => showSelectionToolbar(contents), 300);
             };
-            contents.document.addEventListener("touchstart", (event) => {
-              localNavigationAtRef.current = Date.now();
-              touch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: Date.now() } : null;
-            }, { passive: false, capture: true });
-            contents.document.addEventListener("touchmove", (event) => {
-              if (!touch || readingMode !== "paged" || event.touches.length !== 1 || contents.window.getSelection()?.toString()) return;
-              if (event.cancelable) event.preventDefault();
-            }, { passive: false, capture: true });
-            contents.document.addEventListener("touchend", (event) => {
-              const start = touch; touch = null;
-              if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
-              if (contents.window.getSelection()?.toString()) { scheduleSelectionToolbar(); return; }
-              const end = event.changedTouches[0];
-              const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, Date.now() - start.at);
-              if (direction) { if (event.cancelable) event.preventDefault(); turnPage(direction); }
-            }, { passive: false, capture: true });
-            contents.document.addEventListener("touchcancel", () => { touch = null; }, { passive: true });
             contents.document.addEventListener("selectionchange", scheduleSelectionToolbar);
           }
         });
+
+        // epub.js forwards iframe touch events through Rendition. Keeping the
+        // gesture state here avoids listeners being lost as IframeViews change.
+        let touch: { x: number; y: number; at: number } | null = null;
+        rendition.on("touchstart", (event: TouchEvent) => {
+          localNavigationAtRef.current = Date.now();
+          if (event.touches.length !== 1) { touch = null; return; }
+          const point = event.touches[0];
+          touch = { x: point.clientX, y: point.clientY, at: performance.now() };
+        });
+        rendition.on("touchend", (event: TouchEvent, contents: EpubContents) => {
+          const start = touch;
+          touch = null;
+          if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
+          if (contents.window.getSelection()?.toString().trim()) return;
+          // Leave the system's edge-back gesture to Safari.
+          const width = contents.window.innerWidth || window.innerWidth;
+          if (start.x < 24 || start.x > width - 24) return;
+          const end = event.changedTouches[0];
+          const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, performance.now() - start.at);
+          if (direction) turnPage(direction);
+        });
+        rendition.on("touchcancel", () => { touch = null; });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
           showSelectionToolbar(contents, cfiRange);
         });
@@ -643,7 +653,13 @@ function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTML
       ${scrollLayout ? `
         html, body { max-width: 100% !important; overflow: hidden !important; }
         body { box-sizing: border-box !important; }
-      ` : `html, body { overscroll-behavior: none !important; touch-action: none; }`}
+      ` : `html, body {
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+        -webkit-user-select: text !important;
+        user-select: text !important;
+        touch-action: auto;
+      }`}
       img, svg, video, table { max-width: 100% !important; height: auto; }
       pre { max-width: 100% !important; white-space: pre-wrap !important; overflow-wrap: anywhere; }
       ::-webkit-scrollbar { width: 9px; height: 9px; }

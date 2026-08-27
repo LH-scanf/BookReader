@@ -35,6 +35,7 @@ export function swipeDirection(
 ): "prev" | "next" | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  if (elapsedMs > 900 || Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 0.8) return null;
+  if (elapsedMs > 550 || Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy) * 1.35) return null;
+  if (Math.abs(dx) / Math.max(elapsedMs, 1) < 0.12) return null;
   return dx < 0 ? "next" : "prev";
 }

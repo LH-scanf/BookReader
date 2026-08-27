@@ -540,7 +540,7 @@ h1, h2, h3, p { margin-top: 0; }
 :root[data-reader-ios="true"] body { padding-bottom: 0; overflow: hidden; overscroll-behavior: none; }
 :root[data-reader-ios="true"] .web-status { display: none; }
 :root[data-reader-ios="true"] .web-notice { bottom: calc(34px + env(safe-area-inset-bottom)); padding: 9px 11px; font-size: 12px; }
-:root[data-reader-ios="true"] .reader { position: fixed; inset: 0; height: 100dvh; overflow: hidden; overscroll-behavior: none; touch-action: none; }
+:root[data-reader-ios="true"] .reader { position: fixed; inset: 0; height: 100dvh; overflow: hidden; overscroll-behavior: none; }
 :root[data-reader-ios="true"] .reader-footer { bottom: env(safe-area-inset-bottom); }
 .reader-ios .reader-toolbar { height: calc(48px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
 .reader-ios .toolbar-button { min-width: 34px; height: 38px; padding: 0 5px; }

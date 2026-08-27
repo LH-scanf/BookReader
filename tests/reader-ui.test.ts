@@ -17,9 +17,10 @@ describe("reader UI helpers", () => {
     expect(resolveEpubRelativePath("OEBPS/Text/chapter-2.xhtml", "../Notes/footnotes.xhtml")).toBe("OEBPS/Notes/footnotes.xhtml");
   });
 
-  it("accepts natural diagonal page swipes while rejecting vertical motion", () => {
+  it("accepts quick, horizontal page swipes while rejecting vertical or slow motion", () => {
     expect(swipeDirection({ x: 340, y: 300 }, { x: 250, y: 345 }, 520)).toBe("next");
     expect(swipeDirection({ x: 40, y: 300 }, { x: 115, y: 265 }, 480)).toBe("prev");
     expect(swipeDirection({ x: 200, y: 200 }, { x: 225, y: 320 }, 300)).toBeNull();
+    expect(swipeDirection({ x: 340, y: 300 }, { x: 250, y: 345 }, 600)).toBeNull();
   });
 });
