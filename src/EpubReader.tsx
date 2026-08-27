@@ -1,10 +1,11 @@
 import {
   ArrowLeft, ArrowUpLeft, BookOpen, ChevronLeft, ChevronRight, Highlighter,
-  Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal,
+  Eye, EyeOff, Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal,
   Sun, X,
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
+import { isIOSWebDevice, readerProgressLabel, resolveEpubRelativePath } from "./reader/reader-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, saveAnnotation } from "./library-api";
 import type {
@@ -19,7 +20,7 @@ type ReaderProps = {
   onOpenNotes: () => void;
   onProgress: (bookId: string, percentage: number, cfi: string | null, chapterHref: string | null) => void;
 };
-type LocationEvent = { start: { cfi: string; href: string; percentage?: number } };
+type LocationEvent = { start: { cfi: string; href: string; percentage?: number; location?: number } };
 type EpubContents = { document: Document; window: Window };
 type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterHref" | "cfiRange"> & { x: number; y: number };
 type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "chapterTitle" | "chapterHref" | "cfiRange">;
@@ -57,6 +58,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const appliedHighlightCfisRef = useRef<string[]>([]);
   const chapterRef = useRef("正在载入");
   const chapterHrefRef = useRef(book.chapterHref ?? "");
+  const turnAnimationTimerRef = useRef<number | null>(null);
+  const iosWeb = !isDesktopApp() && isIOSWebDevice();
 
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -82,9 +85,17 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [readerMessage, setReaderMessage] = useState<string | null>(null);
+  const [toolbarHidden, setToolbarHidden] = useState(false);
+  const [showPageNumbers, setShowPageNumbers] = useState(false);
+  const [pagePosition, setPagePosition] = useState<{ current: number; total: number } | null>(null);
 
   useEffect(() => { onProgressRef.current = onProgress; }, [onProgress]);
   useEffect(() => { onOpenNotesRef.current = onOpenNotes; }, [onOpenNotes]);
+  useEffect(() => {
+    if (!iosWeb) return;
+    document.documentElement.dataset.readerIos = "true";
+    return () => { delete document.documentElement.dataset.readerIos; };
+  }, [iosWeb]);
 
   const refreshNotes = useCallback(async () => {
     const records = await loadAnnotations(book.id);
@@ -143,8 +154,16 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     localNavigationAtRef.current = Date.now();
     const rendition = renditionRef.current;
     if (!rendition) return;
+    if (iosWeb && viewerRef.current) {
+      const viewer = viewerRef.current;
+      viewer.classList.remove("page-turn-prev", "page-turn-next");
+      void viewer.offsetWidth;
+      viewer.classList.add(direction === "next" ? "page-turn-next" : "page-turn-prev");
+      if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
+      turnAnimationTimerRef.current = window.setTimeout(() => viewer.classList.remove("page-turn-prev", "page-turn-next"), 320);
+    }
     pendingNavigationRef.current = rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
-  }, []);
+  }, [iosWeb]);
 
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
@@ -212,14 +231,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     const anchor = (event.target as Element | null)?.closest("a[href]") as HTMLAnchorElement | null;
     const href = anchor?.getAttribute("href");
     if (!anchor || !href?.includes("#") || href.startsWith("http")) return;
-    event.preventDefault(); event.stopPropagation();
+    event.preventDefault(); event.stopImmediatePropagation();
     const [pathPart, fragment = ""] = href.split("#");
     const id = decodeURIComponent(fragment);
-    let target: Element | null = pathPart ? null : contents.document.getElementById(id);
+    let target: Element | null = pathPart ? null : contents.document.getElementById(id) ?? contents.document.getElementsByName(id).item(0);
+    const internalPath = resolveEpubRelativePath(chapterHrefRef.current, pathPart);
     if (!target && pathPart && epubBookRef.current) {
       try {
-        const document = await (epubBookRef.current as unknown as { load: (path: string) => Promise<Document> }).load(pathPart);
-        target = document.getElementById(id);
+        const document = await epubBookRef.current.load(internalPath) as Document;
+        target = document.getElementById(id) ?? document.getElementsByName(id).item(0);
       } catch { /* use navigation fallback */ }
     }
     const text = target?.textContent?.replace(/\s+/g, " ").trim();
@@ -227,13 +247,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       const rect = anchor.getBoundingClientRect();
       const frame = (contents.window.frameElement as HTMLElement | null)?.getBoundingClientRect();
       setFootnote({ title: anchor.textContent?.trim() || "脚注", text, x: (frame?.left ?? 0) + rect.left + rect.width / 2, y: (frame?.top ?? 0) + rect.bottom + 8 });
+    } else if (iosWeb && (anchor.getAttribute("epub:type")?.split(/\s+/).includes("noteref") || anchor.getAttribute("role") === "doc-noteref")) {
+      setReaderMessage("未能读取这条脚注，已留在当前页");
     } else if (renditionRef.current) {
       returnCfiRef.current ??= displayedCfiRef.current;
       previewingRef.current = true;
       setReturnAvailable(Boolean(returnCfiRef.current));
-      await renditionRef.current.display(href);
+      await renditionRef.current.display(`${internalPath}#${fragment}`);
     }
-  }, []);
+  }, [iosWeb]);
 
   const focusCfi = useCallback(async (cfi: string) => {
     const epubBook = epubBookRef.current as unknown as { getRange?: (target: string) => Promise<Range> } | null;
@@ -298,7 +320,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           if (contents?.document && contents.document.documentElement.dataset.bookreaderBound !== "true") {
             contents.document.documentElement.dataset.bookreaderBound = "true";
             contents.document.addEventListener("keydown", handleKey);
-            contents.document.addEventListener("click", (event) => void followInternalLink(event, contents));
+            contents.document.addEventListener("click", (event) => void followInternalLink(event, contents), true);
             contents.document.addEventListener("wheel", onWheel, { passive: false });
             let touch: { x: number; y: number; at: number } | null = null;
             contents.document.addEventListener("touchstart", (event) => {
@@ -328,6 +350,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           const calculated = location.start.percentage ?? epubBook.locations.percentageFromCfi(cfi) ?? 0;
           const next = Math.min(1, Math.max(0, calculated));
           setPercentage(next);
+          const total = epubBook.locations.length();
+          const locationIndex = location.start.location ?? epubBook.locations.locationFromCfi(cfi);
+          setPagePosition(total > 0 && Number.isFinite(locationIndex) ? { current: Math.min(total, Math.max(1, Number(locationIndex) + 1)), total } : null);
           const item = flattenToc(navigation.toc ?? []).find((entry) => href.includes(entry.href.split("#")[0]));
           const label = item?.label?.trim() || href || "正文";
           chapterRef.current = label; chapterHrefRef.current = href; setChapter(label);
@@ -360,6 +385,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     return () => {
       cancelled = true;
       removeViewerWheel?.();
+      if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
       void flushProgress().catch(() => undefined);
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
@@ -481,12 +507,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const closeOtherPanels = () => { setTocOpen(false); setSettingsOpen(false); setSearchOpen(false); };
 
   return (
-    <div className={`reader reader-${readerTheme} mode-${readingMode}`} onClick={() => setFootnote(null)}>
+    <div className={`reader reader-${readerTheme} mode-${readingMode}${iosWeb ? " reader-ios" : ""}${toolbarHidden ? " reader-toolbar-hidden" : ""}`} onClick={() => setFootnote(null)}>
       <header className="reader-toolbar">
         <div className="reader-toolbar-side"><button className="toolbar-button" onClick={() => void leaveReader()} aria-label="返回书库"><ArrowLeft size={18} /><span className="back-label">返回书库</span></button><button className={`toolbar-button icon-only ${tocOpen ? "selected" : ""}`} aria-label="打开章节目录" onClick={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }}><Menu size={19} /></button></div>
         <div className="reader-title"><strong title={book.title}>{book.title}</strong><span>{chapter}</span></div>
-        <div className="reader-toolbar-side toolbar-right"><button className={`toolbar-button icon-only ${searchOpen ? "selected" : ""}`} aria-label="书内搜索" title="书内搜索 Ctrl+F" onClick={() => { const next = !searchOpen; closeOtherPanels(); setSearchOpen(next); }}><Search size={18} /></button><button className="toolbar-button icon-only" aria-label="打开整书笔记页面" title="整书笔记 N" onClick={() => void openNotesWorkspace()}><NotebookPen size={18} /></button><button className={`toolbar-button icon-only ${settingsOpen ? "selected" : ""}`} aria-label="阅读设置" onClick={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }}><SlidersHorizontal size={19} /></button></div>
+        <div className="reader-toolbar-side toolbar-right"><button className={`toolbar-button icon-only ${searchOpen ? "selected" : ""}`} aria-label="书内搜索" title="书内搜索 Ctrl+F" onClick={() => { const next = !searchOpen; closeOtherPanels(); setSearchOpen(next); }}><Search size={18} /></button><button className="toolbar-button icon-only" aria-label="打开整书笔记页面" title="整书笔记 N" onClick={() => void openNotesWorkspace()}><NotebookPen size={18} /></button><button className={`toolbar-button icon-only ${settingsOpen ? "selected" : ""}`} aria-label="阅读设置" onClick={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }}><SlidersHorizontal size={19} /></button><button className="toolbar-button icon-only hide-reader-toolbar" aria-label="隐藏顶部栏" title="隐藏顶部栏" onClick={() => { closeOtherPanels(); setToolbarHidden(true); }}><EyeOff size={18} /></button></div>
       </header>
+
+      {toolbarHidden && <button className="show-reader-toolbar" aria-label="显示顶部栏" title="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /></button>}
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
@@ -495,14 +523,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {searchOpen && <aside className="reader-panel search-panel"><PanelHeading title="书内搜索" subtitle="跳转结果不会覆盖阅读进度" onClose={() => setSearchOpen(false)} /><form className="reader-search-form" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="输入关键词" /><button disabled={searching || !searchQuery.trim()}>{searching ? "搜索中" : "搜索"}</button></form><div className="search-results">{!searching && searchQuery && <small>找到 {searchResults.length} 处结果</small>}{searchResults.map((result) => <button key={result.id} onClick={() => void beginPreview(result.cfi)}><span>{result.excerpt}</span><small>{result.chapterTitle}</small></button>)}</div></aside>}
 
-      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
+      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
 
-      <main className="reading-stage">{readingMode === "paged" && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
+      <main className="reading-stage">{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
       {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft)}><Highlighter size={15} />高亮</button><button onClick={() => setReflectionDraft({ quote: selectionDraft.quote, reflection: "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />记录感悟</button><button aria-label="取消" onClick={() => setSelectionDraft(null)}><X size={14} /></button></div>}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
       {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog"><div><span>原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>我的感悟<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="写下此刻的理解……" /></label><div><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div></div></div>}
-      <footer className="reader-footer"><span>{chapter}</span><div className="reader-progress"><span style={{ width: `${percentage * 100}%` }} /></div><span>{Math.round(percentage * 100)}%</span></footer>
+      <footer className="reader-footer"><span>{chapter}</span><button className="reader-progress-toggle" aria-label="切换百分比和页码进度" onClick={() => setShowPageNumbers((value) => !value)}><span className="reader-progress"><span style={{ width: `${percentage * 100}%` }} /></span><span>{readerProgressLabel(percentage, showPageNumbers, pagePosition)}</span></button></footer>
     </div>
   );
 }

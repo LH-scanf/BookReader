@@ -327,7 +327,7 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
         <div><p className="eyebrow">个人阅读空间</p><h1>{filter === "finished" ? "已读" : "我的书库"}</h1></div>
         <div className="library-actions">
           <label className="search-field"><Search size={17} /><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索书名或作者" aria-label="搜索书名或作者" />{search && <button aria-label="清除搜索" onClick={() => onSearch("")}><X size={15} /></button>}</label>
-          <button className="primary-button" disabled={busy} onClick={onImport}><Plus size={18} />{busy ? "正在导入…" : "导入图书"}</button>
+          {filter === "all" && <button className="primary-button compact-import-button" disabled={busy} onClick={onImport}><Plus size={16} />{busy ? "导入中…" : "导入图书"}</button>}
         </div>
       </header>
 
@@ -345,7 +345,7 @@ function LibraryView({ filter, search, books, busy, onSearch, onImport, onOpenBo
         {visibleBooks.length ? (
           <div className="book-grid">{visibleBooks.map((book) => <BookCard key={book.id} book={book} menuOpen={menuBookId === book.id} onToggleMenu={() => { setMenuBookId((current) => current === book.id ? null : book.id); setSortOpen(false); }} onOpen={() => { closeMenus(); onOpenBook(book); }} onRename={() => beginRename(book)} onChangeCover={() => { closeMenus(); onChangeCover(book); }} onRestoreCover={() => { closeMenus(); onRestoreCover(book); }} onSetFinished={() => { closeMenus(); onSetFinished(book); }} onDelete={() => { closeMenus(); onDelete(book); }} />)}</div>
         ) : (
-          <div className="empty-state"><BookMarked size={28} /><h3>{books.length ? "没有找到图书" : "书库还是空的"}</h3><p>{books.length ? "尝试更换搜索词。" : "点击右上角的“导入图书”，选择一个或多个 EPUB 文件。"}</p>{!books.length && <button className="secondary-button" onClick={onImport}>导入第一本书</button>}</div>
+          <div className="empty-state"><BookMarked size={28} /><h3>{search ? "没有找到图书" : filter === "finished" ? "还没有已读图书" : "书库还是空的"}</h3><p>{search ? "尝试更换搜索词。" : filter === "finished" ? "读完一本书后，它会显示在这里。" : "点击右上角的“导入图书”，选择一个或多个 EPUB 文件。"}</p>{!books.length && filter === "all" && !search && <button className="secondary-button" onClick={onImport}>导入第一本书</button>}</div>
         )}
       </section>
       {(sortOpen || menuBookId) && <button className="menu-backdrop" aria-label="关闭菜单" onClick={closeMenus} />}
