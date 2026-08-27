@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { activeDeletions, parseLifecycle, type LifecycleOperation } from "../src/library/protocol";
 import { database, writeDocuments, acknowledge, deviceId } from "../src/storage/database";
-import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation, importEpub } from "../src/library/WebProvider";
+import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation, removeAnnotation, loadAnnotations, importEpub } from "../src/library/WebProvider";
 import { readFile, storeFile, removeCachedFile } from "../src/storage/files";
 
 const id = "10000000-0000-4000-8000-000000000001";
@@ -83,7 +83,16 @@ describe("local library and durable queue", () => {
     await removeCachedFile(path); expect(await readFile(path)).toBeUndefined();
     expect((await loadLibrary()).books).toHaveLength(1);
   });
-  it("prevents unsupported browser note edits", async () => {
-    await expect(saveAnnotation({ bookId: id, quote: "q", reflection: "r", chapterTitle: "c", chapterHref: "c", cfiRange: "x" })).rejects.toThrow("首版仅支持查看");
+  it("saves, edits and tombstones browser annotations through the durable queue", async () => {
+    await seed();
+    const created = await saveAnnotation({ bookId: id, quote: "原文", reflection: "初次笔记", chapterTitle: "第一章", chapterHref: "c", cfiRange: "epubcfi(x)" });
+    expect(await loadAnnotations(id)).toEqual([created]);
+    const edited = await saveAnnotation({ id: created.id, bookId: id, quote: "原文", reflection: "修改后", chapterTitle: "第一章", chapterHref: "c", cfiRange: "epubcfi(x)" });
+    expect(edited).toMatchObject({ id: created.id, createdAt: created.createdAt, reflection: "修改后", deletedAt: null });
+    await removeAnnotation(id, created.id);
+    expect(await loadAnnotations(id)).toEqual([]);
+    const path = `annotations/${id}/${created.id}.json`; const db = await database();
+    expect((await db.get("documents", path))?.data).toMatchObject({ id: created.id, deletedAt: expect.any(String) });
+    expect(await db.get("queue", path)).toBeDefined();
   });
 });

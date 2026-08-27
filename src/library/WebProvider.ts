@@ -5,7 +5,7 @@ import { notifyLibraryChanged } from "../platform";
 import { activeDeletions, parseLifecycle, parseMetadata, requireId, validProgress, type LifecycleOperation, type Metadata, type Progress } from "./protocol";
 
 export const MAX_EPUB_BYTES = 100 * 1024 * 1024;
-function readOnly(): never { throw new Error("网页版首版仅支持查看笔记、书名和封面，请在桌面端编辑"); }
+function readOnly(): never { throw new Error("网页版暂不支持修改书名、封面和整书总结，请在桌面端编辑"); }
 export async function operations(bookId: string): Promise<LifecycleOperation[]> {
   requireId(bookId);
   return (await (await database()).getAll("documents"))
@@ -138,7 +138,8 @@ export async function importEpub(file: File): Promise<BookRecord> {
 export async function loadAnnotations(bookId: string): Promise<AnnotationRecord[]> {
   requireId(bookId);
   return (await (await database()).getAll("documents")).filter((r) => r.path.startsWith(`annotations/${bookId}/`))
-    .map((r) => r.data as AnnotationRecord).filter((r) => r.bookId === bookId && r.schemaVersion === 1 && !r.deletedAt);
+    .map((r) => r.data as AnnotationRecord).filter((r) => r.bookId === bookId && r.schemaVersion === 1 && !r.deletedAt)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 export async function loadBookNote(bookId: string): Promise<BookNote> {
   requireId(bookId);
@@ -148,8 +149,31 @@ export async function loadBookNote(bookId: string): Promise<BookNote> {
 export async function renameBook(_id: string, _title: string): Promise<BookRecord> { return readOnly(); }
 export async function chooseCustomCover(_id: string): Promise<BookRecord | null> { return readOnly(); }
 export async function restoreBookCover(_id: string): Promise<BookRecord> { return readOnly(); }
-export async function saveAnnotation(_input: AnnotationInput): Promise<AnnotationRecord> { return readOnly(); }
-export async function removeAnnotation(_id: string, _annotationId: string): Promise<void> { readOnly(); }
+export async function saveAnnotation(input: AnnotationInput): Promise<AnnotationRecord> {
+  requireId(input.bookId); await assertActive(input.bookId);
+  if (!input.quote.trim() || !input.cfiRange.trim()) throw new Error("高亮原文和位置不能为空");
+  const id = input.id ?? crypto.randomUUID(); requireId(id);
+  const path = `annotations/${input.bookId}/${id}.json`;
+  const existing = (await (await database()).get("documents", path))?.data as AnnotationRecord | undefined;
+  const now = new Date().toISOString();
+  const record: AnnotationRecord = {
+    schemaVersion: 1, id, bookId: input.bookId, recordType: "quote-note",
+    quote: input.quote.trim(), reflection: input.reflection.trim(), chapterTitle: input.chapterTitle.trim(),
+    chapterHref: input.chapterHref, cfiRange: input.cfiRange,
+    createdAt: existing?.createdAt ?? now, updatedAt: now, deletedAt: null,
+  };
+  await writeDocuments([{ path, data: record }]);
+  return record;
+}
+export async function removeAnnotation(bookId: string, annotationId: string): Promise<void> {
+  requireId(bookId); requireId(annotationId); await assertActive(bookId);
+  const path = `annotations/${bookId}/${annotationId}.json`;
+  const db = await database();
+  const record = (await db.get("documents", path))?.data as AnnotationRecord | undefined;
+  if (!record || record.bookId !== bookId || record.id !== annotationId) throw new Error("找不到这条笔记");
+  const now = new Date().toISOString();
+  await writeDocuments([{ path, data: { ...record, updatedAt: now, deletedAt: now } }]);
+}
 export async function persistBookNote(_id: string, _summary: string): Promise<BookNote> { return readOnly(); }
 export function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

@@ -1,13 +1,13 @@
 import {
   ArrowLeft, ArrowUpLeft, BookOpen, ChevronLeft, ChevronRight, Highlighter,
-  Eye, EyeOff, Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal,
+  Eye, EyeOff, Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal, Trash2,
   Sun, X,
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
-import { isIOSWebDevice, readerProgressLabel, resolveEpubRelativePath } from "./reader/reader-ui";
+import { isIOSWebDevice, readerProgressLabel, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, saveAnnotation } from "./library-api";
+import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, removeAnnotation, saveAnnotation } from "./library-api";
 import type {
   AnnotationInput, AnnotationRecord, BookRecord, ReaderTheme, ReadingMode,
 } from "./types";
@@ -22,7 +22,7 @@ type ReaderProps = {
 };
 type LocationEvent = { start: { cfi: string; href: string; percentage?: number; location?: number } };
 type EpubContents = { document: Document; window: Window };
-type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterHref" | "cfiRange"> & { x: number; y: number };
+type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterHref" | "cfiRange"> & { x: number; y: number; annotationId?: string; reflection?: string };
 type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "chapterTitle" | "chapterHref" | "cfiRange">;
 type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: string };
 type FootnotePopup = { title: string; text: string; x: number; y: number };
@@ -160,7 +160,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       void viewer.offsetWidth;
       viewer.classList.add(direction === "next" ? "page-turn-next" : "page-turn-prev");
       if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
-      turnAnimationTimerRef.current = window.setTimeout(() => viewer.classList.remove("page-turn-prev", "page-turn-next"), 320);
+      turnAnimationTimerRef.current = window.setTimeout(() => viewer.classList.remove("page-turn-prev", "page-turn-next"), 440);
     }
     pendingNavigationRef.current = rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
   }, [iosWeb]);
@@ -327,22 +327,32 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
               localNavigationAtRef.current = Date.now();
               touch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: Date.now() } : null;
             }, { passive: true });
+            contents.document.addEventListener("touchmove", (event) => {
+              if (!touch || readingMode !== "paged" || event.touches.length !== 1 || contents.window.getSelection()?.toString()) return;
+              if (event.cancelable) event.preventDefault();
+            }, { passive: false, capture: true });
             contents.document.addEventListener("touchend", (event) => {
               const start = touch; touch = null;
-              if (!start || readingMode !== "paged" || event.changedTouches.length !== 1 || Date.now() - start.at > 600 || contents.window.getSelection()?.toString()) return;
-              const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y;
-              if (Math.abs(dx) >= 60 && Math.abs(dy) < 40) turnPage(dx < 0 ? "next" : "prev");
-            }, { passive: true });
+              if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
+              const end = event.changedTouches[0];
+              const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, Date.now() - start.at);
+              if (direction) { if (event.cancelable) event.preventDefault(); turnPage(direction); }
+            }, { passive: false, capture: true });
+            contents.document.addEventListener("touchcancel", () => { touch = null; }, { passive: true });
           }
         });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
-          if (!isDesktopApp()) return;
           const selection = contents.window.getSelection();
           const quote = selection?.toString().replace(/\s+/g, " ").trim();
           if (!quote || !selection?.rangeCount) return;
           const rect = selection.getRangeAt(0).getBoundingClientRect();
           const frame = (contents.window.frameElement as HTMLElement | null)?.getBoundingClientRect();
-          setSelectionDraft({ quote, cfiRange, chapterTitle: chapterRef.current, chapterHref: chapterHrefRef.current, x: (frame?.left ?? 0) + rect.left + rect.width / 2, y: (frame?.top ?? 0) + rect.bottom + 8 });
+          const existing = annotationsRef.current.find((record) => record.cfiRange === cfiRange);
+          const rawX = (frame?.left ?? 0) + rect.left + rect.width / 2;
+          const rawY = (frame?.top ?? 0) + rect.bottom + 8;
+          setSelectionDraft({ quote, cfiRange, chapterTitle: chapterRef.current, chapterHref: chapterHrefRef.current,
+            annotationId: existing?.id, reflection: existing?.reflection,
+            x: Math.min(window.innerWidth - 120, Math.max(120, rawX)), y: Math.min(window.innerHeight - 54, Math.max(8, rawY)) });
         });
         rendition.on("relocated", (location: LocationEvent) => {
           const { cfi, href } = location.start;
@@ -450,9 +460,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
   const createHighlight = async (draft: SelectionDraft, reflection = "") => {
     try {
-      const record = await saveAnnotation({ bookId: book.id, quote: draft.quote, reflection, chapterTitle: draft.chapterTitle, chapterHref: draft.chapterHref, cfiRange: draft.cfiRange });
+      const record = await saveAnnotation({ id: draft.annotationId, bookId: book.id, quote: draft.quote, reflection, chapterTitle: draft.chapterTitle, chapterHref: draft.chapterHref, cfiRange: draft.cfiRange });
       setAnnotations((current) => [...current.filter((item) => item.id !== record.id), record]);
       setSelectionDraft(null);
+      clearReaderSelection(renditionRef.current);
       setReaderMessage(reflection ? "高亮和感悟已保存" : "已高亮，可在整书笔记中补充感悟");
     } catch (reason) { setReaderMessage(String(reason)); }
   };
@@ -462,6 +473,16 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       const record = await saveAnnotation({ ...reflectionDraft, bookId: book.id });
       setAnnotations((current) => [...current.filter((item) => item.id !== record.id), record].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
       setReflectionDraft(null); setSelectionDraft(null); setReaderMessage("感悟已保存到整书笔记");
+      clearReaderSelection(renditionRef.current);
+    } catch (reason) { setReaderMessage(String(reason)); }
+  };
+  const deleteSelectionNote = async (draft: SelectionDraft) => {
+    if (!draft.annotationId || !window.confirm("确定删除这条高亮和笔记吗？")) return;
+    try {
+      await removeAnnotation(book.id, draft.annotationId);
+      setAnnotations((current) => current.filter((item) => item.id !== draft.annotationId));
+      setSelectionDraft(null); clearReaderSelection(renditionRef.current);
+      setReaderMessage("高亮和笔记已删除");
     } catch (reason) { setReaderMessage(String(reason)); }
   };
   const runSearch = async () => {
@@ -527,12 +548,18 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       <main className="reading-stage">{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
-      {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft)}><Highlighter size={15} />高亮</button><button onClick={() => setReflectionDraft({ quote: selectionDraft.quote, reflection: "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />记录感悟</button><button aria-label="取消" onClick={() => setSelectionDraft(null)}><X size={14} /></button></div>}
+      {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft, selectionDraft.reflection ?? "")}><Highlighter size={15} />高亮标记</button><button onClick={() => setReflectionDraft({ id: selectionDraft.annotationId, quote: selectionDraft.quote, reflection: selectionDraft.reflection ?? "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />{selectionDraft.annotationId ? "编辑笔记" : "添加笔记"}</button>{selectionDraft.annotationId && <button className="destructive-text" onClick={() => void deleteSelectionNote(selectionDraft)}><Trash2 size={15} />删除笔记</button>}<button aria-label="取消" onClick={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }}><X size={14} /></button></div>}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
-      {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog"><div><span>原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>我的感悟<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="写下此刻的理解……" /></label><div><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div></div></div>}
-      <footer className="reader-footer"><span>{chapter}</span><button className="reader-progress-toggle" aria-label="切换百分比和页码进度" onClick={() => setShowPageNumbers((value) => !value)}><span className="reader-progress"><span style={{ width: `${percentage * 100}%` }} /></span><span>{readerProgressLabel(percentage, showPageNumbers, pagePosition)}</span></button></footer>
+      {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog">{iosWeb && <div className="mobile-note-header"><button onClick={() => setReflectionDraft(null)}>取消</button><strong>笔记</strong><button className="save-reflection" onClick={() => void saveReflection()}>完成</button></div>}<div><span>所选原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>笔记<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="添加笔记……" /></label>{!iosWeb && <div className="reflection-actions"><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div>}</div></div>}
+      <footer className="reader-footer"><button className="reader-progress-toggle" aria-label="切换百分比和页码进度" onClick={() => setShowPageNumbers((value) => !value)}>{readerProgressLabel(percentage, showPageNumbers, pagePosition)}</button></footer>
     </div>
   );
+}
+
+function clearReaderSelection(rendition: Rendition | null) {
+  if (!rendition) return;
+  const raw = rendition.getContents() as unknown as Array<{ window?: Window }> | { window?: Window };
+  for (const contents of Array.isArray(raw) ? raw : [raw]) contents.window?.getSelection()?.removeAllRanges();
 }
 
 function PanelHeading({ title, subtitle, onClose }: { title: string; subtitle: string; onClose: () => void }) {
@@ -602,7 +629,7 @@ function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTML
       ${scrollLayout ? `
         html, body { max-width: 100% !important; overflow: hidden !important; }
         body { box-sizing: border-box !important; }
-      ` : ""}
+      ` : `html, body { overscroll-behavior: none !important; touch-action: none; }`}
       img, svg, video, table { max-width: 100% !important; height: auto; }
       pre { max-width: 100% !important; white-space: pre-wrap !important; overflow-wrap: anywhere; }
       ::-webkit-scrollbar { width: 9px; height: 9px; }

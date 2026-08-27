@@ -27,3 +27,14 @@ export function resolveEpubRelativePath(currentHref: string, targetPath: string)
   }
   return parts.join("/");
 }
+
+export function swipeDirection(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  elapsedMs: number,
+): "prev" | "next" | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (elapsedMs > 900 || Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 0.8) return null;
+  return dx < 0 ? "next" : "prev";
+}
