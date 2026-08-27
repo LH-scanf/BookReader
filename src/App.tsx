@@ -28,6 +28,7 @@ import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryStat
 
 const CloudSettings = lazy(() => import("./CloudSettings"));
 const TrashSettings = lazy(() => import("./TrashSettings"));
+const PwaUpdateSettings = __WEB_BUILD__ ? lazy(() => import("./PwaUpdateSettings")) : null;
 const EpubReader = lazy(() => import("./EpubReader"));
 type Appearance = "light" | "dark";
 
@@ -547,6 +548,7 @@ function SettingsView({ libraryDir, busy, onSelectLibrary, appearance, onAppeara
         <div className="directory-row"><div><span>当前书库目录</span><code>{libraryDir ?? "尚未选择"}</code></div><button className="secondary-button" disabled={busy} onClick={onSelectLibrary}>{libraryDir ? "切换目录" : "选择目录"}</button></div>
         <div className="status-row">{libraryDir ? <><span className="sync-dot" />目录可用；可交由 OneDrive 等工具同步</> : "选择目录后才能导入图书"}</div>
       </section> : <Suspense fallback={<p>正在加载同步设置…</p>}><CloudSettings /></Suspense>}
+      {PwaUpdateSettings && !isDesktopApp() && <Suspense fallback={null}><PwaUpdateSettings /></Suspense>}
       <Suspense fallback={null}><TrashSettings /></Suspense>
       <section className="settings-card appearance-card"><div><h2>外观</h2><p>应用于书库、整书笔记和设置，自动记住选择。阅读页的明亮、纸张和夜间主题独立设置。</p></div><div className="appearance-options" role="group" aria-label="应用外观"><button aria-pressed={appearance === "light"} onClick={() => onAppearanceChange("light")}><Sun size={18} />浅色</button><button aria-pressed={appearance === "dark"} onClick={() => onAppearanceChange("dark")}><Moon size={18} />深色</button></div></section>
     </div>
