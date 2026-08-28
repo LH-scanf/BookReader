@@ -22,6 +22,12 @@ type ReaderProps = {
 };
 type LocationEvent = { start: { cfi: string; href: string; percentage?: number; location?: number } };
 type EpubContents = { document: Document; window: Window; cfiFromRange?: (range: Range) => string };
+type EpubView = {
+  contents?: EpubContents;
+  _width?: number;
+  layout?: { pageWidth?: number; height?: number };
+  reframe?: (width: number, height: number) => void;
+};
 type SelectionDraft = Pick<AnnotationInput, "quote" | "chapterTitle" | "chapterHref" | "cfiRange"> & { x: number; y: number; annotationId?: string; reflection?: string };
 type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "chapterTitle" | "chapterHref" | "cfiRange">;
 type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: string };
@@ -100,6 +106,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
+  const [pagingLayout, setPagingLayout] = useState<{ pageWidth: number; contentWidth: number; frameWidth: number } | null>(null);
 
   const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
     setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
@@ -110,6 +117,24 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     setPagingDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
   }, []);
   useEffect(() => { pagingDiagnosticEnabledRef.current = pagingDiagnosticEnabled; }, [pagingDiagnosticEnabled]);
+
+  const stabilizeIosPagedFrame = useCallback((view: EpubView) => {
+    if (!iosWeb || readingMode !== "paged") return;
+    // Safari can report a Range width of only the visible CSS column. epub.js
+    // then makes the iframe one page wide although the chapter has more pages.
+    // scrollWidth retains the complete column track, so use it to reframe.
+    window.requestAnimationFrame(() => {
+      const document = view.contents?.document;
+      const viewer = viewerRef.current;
+      if (!document || !viewer || !view.reframe) return;
+      const pageWidth = Math.max(1, Math.round(view.layout?.pageWidth ?? viewer.clientWidth));
+      const contentWidth = Math.max(pageWidth, document.documentElement.scrollWidth, document.body?.scrollWidth ?? 0);
+      const frameWidth = Math.ceil(contentWidth / pageWidth) * pageWidth;
+      if (pagingDiagnosticEnabledRef.current) setPagingLayout({ pageWidth, contentWidth, frameWidth });
+      if (Math.abs((view._width ?? 0) - frameWidth) < 2) return;
+      view.reframe(frameWidth, Math.max(1, Math.round(view.layout?.height ?? viewer.clientHeight)));
+    });
+  }, [iosWeb, readingMode]);
 
   useEffect(() => { onProgressRef.current = onProgress; }, [onProgress]);
   useEffect(() => { onOpenNotesRef.current = onOpenNotes; }, [onOpenNotes]);
@@ -374,7 +399,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
         // `rendered` receives an IframeView, not Contents. Keep it for visual
         // work only; event wiring belongs in the content hook below.
-        rendition.on("rendered", () => {
+        rendition.on("rendered", (_section: unknown, view: EpubView) => {
+          stabilizeIosPagedFrame(view);
           installPreciseMapping(rendition);
           applyReaderTheme(rendition, themeRef.current, viewer);
           appliedHighlightCfisRef.current = refreshHighlights(rendition, annotationsRef.current, themeRef.current, appliedHighlightCfisRef.current);
@@ -662,7 +688,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {searchOpen && <aside className="reader-panel search-panel"><PanelHeading title="书内搜索" subtitle="跳转结果不会覆盖阅读进度" onClose={() => setSearchOpen(false)} /><form className="reader-search-form" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="输入关键词" /><button disabled={searching || !searchQuery.trim()}>{searching ? "搜索中" : "搜索"}</button></form><div className="search-results">{!searching && searchQuery && <small>找到 {searchResults.length} 处结果</small>}{searchResults.map((result) => <button key={result.id} onClick={() => void beginPreview(result.cfi)}><span>{result.excerpt}</span><small>{result.chapterTitle}</small></button>)}</div></aside>}
 
-      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 识别 {pagingDiagnosticEvents.recognized ?? 0} · 翻页请求 {(pagingDiagnosticEvents["next-requested"] ?? 0) + (pagingDiagnosticEvents["prev-requested"] ?? 0)} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}</small>}</div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
+      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingLayout(null); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 识别 {pagingDiagnosticEvents.recognized ?? 0} · 翻页请求 {(pagingDiagnosticEvents["next-requested"] ?? 0) + (pagingDiagnosticEvents["prev-requested"] ?? 0)} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}{pagingLayout && <> · 列 {pagingLayout.contentWidth}/{pagingLayout.frameWidth}px（页宽 {pagingLayout.pageWidth}px）</>}</small>}</div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
 
       <main className="reading-stage">{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
