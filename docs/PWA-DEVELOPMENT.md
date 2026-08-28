@@ -334,3 +334,11 @@
 - 正常模式新增 250ms 的 `rendition.getContents()` 选区轮询后备路径：只要 WebKit 已建立非折叠原生选区且可转换为 CFI，就调用既有底部高亮/笔记栏。诊断模式下同一逻辑只计数，不改变阅读数据。
 - 此实验不能证明 `allow-scripts` 是长期方案，也不应在完成比对后保留为默认。若两种参数结果确有差异，后续必须先评估 CSP、移除 EPUB `<script>`、内联事件属性和允许脚本的隔离设计，不能直接放开不受信任书籍脚本。
 - `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过；尚待 iPhone Safari 与主屏幕 PWA 的四组真机结果。
+
+## 2026-08-28 · iOS 阅读重排与桌面 OneDrive 目录兼容
+
+- 根据后续真机反馈，原生蓝色选区后已能显示 BookReader 的底部“高亮标记 / 添加笔记”栏，说明选区识别链已恢复；iframe `allow-scripts` 诊断仍保持为显式 URL 实验，未改动默认的安全设置。
+- 隐藏工具栏后的恢复入口由覆盖书页的固定眼睛图标改为阅读器布局中的窄顶栏，按钮占据自身行，书页从其下方开始，不再与 EPUB 内容、安全区或浮层叠加。
+- 字号变化改为 140ms 防抖的受控重排：保留当前 CFI，重新 display，等待两帧布局稳定后移除并按原 CFI 重建高亮 SVG，从而避免高亮停留在旧字号坐标。
+- 阅读设置增加临时“分页诊断”与上一页/下一页测试按钮。开启后记录 iframe 内容触摸、Rendition 转发、方向识别、翻页请求和 `relocated`；用于区分 iPhone 手势链故障与 epub.js 分页接口/布局故障，不拦截原生触摸。
+- 桌面端识别 OneDrive 个人应用目录结构：用户选择 `Apps/BookReader` 时，若已有 `BookReaderLibrary/books` 或 `library-version.json`，自动将实际书库根目录切换到 `Apps/BookReader/BookReaderLibrary` 并保存该路径。启动和后续 OneDrive 文件到达时均会重新识别，避免将外层 App 文件夹误当作空书库。

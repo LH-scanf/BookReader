@@ -27,6 +27,7 @@ type ReflectionDraft = Pick<AnnotationInput, "id" | "quote" | "reflection" | "ch
 type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: string };
 type FootnotePopup = { title: string; text: string; x: number; y: number };
 type IframeDiagnosticEvent = "touchstart" | "touchend" | "selectionchange" | "selected" | "selection-poll";
+type PagingDiagnosticEvent = "content-start" | "content-end" | "rendition-start" | "rendition-end" | "recognized" | "next-requested" | "prev-requested" | "relocated";
 
 function flattenToc(items: NavItem[], depth = 0): Array<NavItem & { depth: number }> {
   return items.flatMap((item) => [{ ...item, depth }, ...flattenToc(item.subitems ?? [], depth + 1)]);
@@ -60,6 +61,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const chapterRef = useRef("正在载入");
   const chapterHrefRef = useRef(book.chapterHref ?? "");
   const turnAnimationTimerRef = useRef<number | null>(null);
+  const highlightReflowTimerRef = useRef<number | null>(null);
+  const pagingDiagnosticEnabledRef = useRef(false);
   const iosWeb = !isDesktopApp() && isIOSWebDevice();
   // Production-only diagnostic switch. It is intentionally opt-in and does
   // not change the normal reader's safe sandbox setting.
@@ -95,11 +98,18 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [showPageNumbers, setShowPageNumbers] = useState(false);
   const [pagePosition, setPagePosition] = useState<{ current: number; total: number } | null>(null);
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
+  const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
+  const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
 
   const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
     setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
     setReaderMessage(`${event} 收到`);
   }, []);
+  const recordPagingDiagnostic = useCallback((event: PagingDiagnosticEvent) => {
+    if (!pagingDiagnosticEnabledRef.current) return;
+    setPagingDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
+  }, []);
+  useEffect(() => { pagingDiagnosticEnabledRef.current = pagingDiagnosticEnabled; }, [pagingDiagnosticEnabled]);
 
   useEffect(() => { onProgressRef.current = onProgress; }, [onProgress]);
   useEffect(() => { onOpenNotesRef.current = onOpenNotes; }, [onOpenNotes]);
@@ -347,8 +357,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         rendition.on("rendered", () => {
           installPreciseMapping(rendition);
           applyReaderTheme(rendition, themeRef.current, viewer);
-          applyHighlights(rendition, annotationsRef.current, themeRef.current);
-          appliedHighlightCfisRef.current = annotationsRef.current.map((record) => record.cfiRange);
+          appliedHighlightCfisRef.current = refreshHighlights(rendition, annotationsRef.current, themeRef.current, appliedHighlightCfisRef.current);
         });
 
         rendition.hooks.content.register((contents: EpubContents) => {
@@ -357,6 +366,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("keydown", handleKey);
             contents.document.addEventListener("click", (event) => void followInternalLink(event, contents), true);
             contents.document.addEventListener("wheel", onWheel, { passive: false });
+            contents.document.addEventListener("touchstart", () => recordPagingDiagnostic("content-start"), { passive: true });
+            contents.document.addEventListener("touchend", () => recordPagingDiagnostic("content-end"), { passive: true });
             let selectionTimer: number | null = null;
             const scheduleSelectionToolbar = () => {
               if (selectionTimer) window.clearTimeout(selectionTimer);
@@ -373,6 +384,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         // gesture state here avoids listeners being lost as IframeViews change.
         let touch: { x: number; y: number; at: number } | null = null;
         rendition.on("touchstart", (event: TouchEvent) => {
+          recordPagingDiagnostic("rendition-start");
           if (iframeDiagnostic) { recordIframeDiagnostic("touchstart"); return; }
           localNavigationAtRef.current = Date.now();
           if (event.touches.length !== 1) { touch = null; return; }
@@ -380,6 +392,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           touch = { x: point.clientX, y: point.clientY, at: performance.now() };
         });
         rendition.on("touchend", (event: TouchEvent, contents: EpubContents) => {
+          recordPagingDiagnostic("rendition-end");
           if (iframeDiagnostic) { recordIframeDiagnostic("touchend"); return; }
           const start = touch;
           touch = null;
@@ -390,7 +403,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           if (start.x < 24 || start.x > width - 24) return;
           const end = event.changedTouches[0];
           const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, performance.now() - start.at);
-          if (direction) turnPage(direction);
+          if (direction) {
+            recordPagingDiagnostic("recognized");
+            recordPagingDiagnostic(direction === "next" ? "next-requested" : "prev-requested");
+            turnPage(direction);
+          }
         });
         rendition.on("touchcancel", () => { touch = null; });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
@@ -418,6 +435,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           if (!hasSelection) lastPolledCfi = null;
         }, 250);
         rendition.on("relocated", (location: LocationEvent) => {
+          recordPagingDiagnostic("relocated");
           const { cfi, href } = location.start;
           displayedCfiRef.current = cfi;
           const calculated = location.start.percentage ?? epubBook.locations.percentageFromCfi(cfi) ?? 0;
@@ -460,6 +478,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       removeViewerWheel?.();
       if (selectionPoll) window.clearInterval(selectionPoll);
       if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
+      if (highlightReflowTimerRef.current) window.clearTimeout(highlightReflowTimerRef.current);
       void flushProgress().catch(() => undefined);
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
@@ -469,12 +488,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   useEffect(() => {
     annotationsRef.current = annotations;
     if (renditionRef.current) {
-      const manager = renditionRef.current.annotations as unknown as { remove: (cfi: string, type: string) => void };
-      for (const cfi of appliedHighlightCfisRef.current) {
-        try { manager.remove(cfi, "highlight"); } catch { /* already removed */ }
-      }
-      applyHighlights(renditionRef.current, annotations, readerTheme);
-      appliedHighlightCfisRef.current = annotations.map((record) => record.cfiRange);
+      appliedHighlightCfisRef.current = refreshHighlights(renditionRef.current, annotations, readerTheme, appliedHighlightCfisRef.current);
     }
   }, [annotations, readerTheme]);
 
@@ -501,7 +515,26 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     localStorage.setItem("reader-theme", readerTheme); themeRef.current = readerTheme;
     if (renditionRef.current) applyReaderTheme(renditionRef.current, readerTheme, viewerRef.current);
   }, [readerTheme]);
-  useEffect(() => { localStorage.setItem("reader-font-size", String(fontSize)); renditionRef.current?.themes.fontSize(`${fontSize}px`); }, [fontSize]);
+  useEffect(() => {
+    localStorage.setItem("reader-font-size", String(fontSize));
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    rendition.themes.fontSize(`${fontSize}px`);
+    if (highlightReflowTimerRef.current) window.clearTimeout(highlightReflowTimerRef.current);
+    // epub.js keeps annotation SVG coordinates from the previous layout. Re-display
+    // the current CFI after the final range update, then rebuild every highlight.
+    highlightReflowTimerRef.current = window.setTimeout(() => {
+      const anchor = displayedCfiRef.current;
+      pendingNavigationRef.current = rendition.display(anchor ?? undefined)
+        .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+        .then(() => {
+          if (renditionRef.current !== rendition) return;
+          appliedHighlightCfisRef.current = refreshHighlights(rendition, annotationsRef.current, themeRef.current, appliedHighlightCfisRef.current);
+        })
+        .catch((reason: unknown) => setReaderMessage(`字号重排失败：${String(reason)}`));
+    }, 140);
+    return () => { if (highlightReflowTimerRef.current) window.clearTimeout(highlightReflowTimerRef.current); };
+  }, [fontSize]);
   useEffect(() => { localStorage.setItem("reader-mode", readingMode); }, [readingMode]);
 
   const goTo = async (href: string, label: string) => {
@@ -599,7 +632,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         <div className="reader-toolbar-side toolbar-right"><button className={`toolbar-button icon-only ${searchOpen ? "selected" : ""}`} aria-label="书内搜索" title="书内搜索 Ctrl+F" onClick={() => { const next = !searchOpen; closeOtherPanels(); setSearchOpen(next); }}><Search size={18} /></button><button className="toolbar-button icon-only" aria-label="打开整书笔记页面" title="整书笔记 N" onClick={() => void openNotesWorkspace()}><NotebookPen size={18} /></button><button className={`toolbar-button icon-only ${settingsOpen ? "selected" : ""}`} aria-label="阅读设置" onClick={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }}><SlidersHorizontal size={19} /></button><button className="toolbar-button icon-only hide-reader-toolbar" aria-label="隐藏顶部栏" title="隐藏顶部栏" onClick={() => { closeOtherPanels(); setToolbarHidden(true); }}><EyeOff size={18} /></button></div>
       </header>
 
-      {toolbarHidden && <button className="show-reader-toolbar" aria-label="显示顶部栏" title="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /></button>}
+      {toolbarHidden && <div className="reader-toolbar-reveal"><button className="show-reader-toolbar" aria-label="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /><span>显示顶部栏</span></button></div>}
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
@@ -609,7 +642,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {searchOpen && <aside className="reader-panel search-panel"><PanelHeading title="书内搜索" subtitle="跳转结果不会覆盖阅读进度" onClose={() => setSearchOpen(false)} /><form className="reader-search-form" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="输入关键词" /><button disabled={searching || !searchQuery.trim()}>{searching ? "搜索中" : "搜索"}</button></form><div className="search-results">{!searching && searchQuery && <small>找到 {searchResults.length} 处结果</small>}{searchResults.map((result) => <button key={result.id} onClick={() => void beginPreview(result.cfi)}><span>{result.excerpt}</span><small>{result.chapterTitle}</small></button>)}</div></aside>}
 
-      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
+      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 识别 {pagingDiagnosticEvents.recognized ?? 0} · 翻页请求 {(pagingDiagnosticEvents["next-requested"] ?? 0) + (pagingDiagnosticEvents["prev-requested"] ?? 0)} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}</small>}</div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
 
       <main className="reading-stage">{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
@@ -660,6 +693,15 @@ function applyHighlights(rendition: Rendition, records: AnnotationRecord[], them
     try { manager.remove(record.cfiRange, "highlight"); } catch { /* not rendered */ }
     try { manager.highlight(record.cfiRange, { annotationId: record.id }, undefined, "bookreader-highlight", highlight); } catch { /* invalid external CFI */ }
   }
+}
+
+function refreshHighlights(rendition: Rendition, records: AnnotationRecord[], theme: ReaderTheme, previous: string[]) {
+  const manager = rendition.annotations as unknown as { remove: (cfi: string, type: string) => void };
+  for (const cfi of new Set([...previous, ...records.map((record) => record.cfiRange)])) {
+    try { manager.remove(cfi, "highlight"); } catch { /* the CFI is outside this rendered view */ }
+  }
+  applyHighlights(rendition, records, theme);
+  return records.map((record) => record.cfiRange);
 }
 
 function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTMLDivElement | null) {

@@ -217,7 +217,7 @@ fn save_app_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 
 fn configured_library_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let settings = load_app_settings(app)?.ok_or_else(|| "尚未选择书库目录".to_string())?;
-    Ok(PathBuf::from(settings.library_dir))
+    Ok(configured_library_root(&settings))
 }
 
 fn configured_device_id(app: &AppHandle) -> Result<String, String> {
@@ -244,6 +244,23 @@ fn initialize_library(path: &Path) -> Result<(), String> {
             .map_err(|error| format!("无法写入书库版本：{error}"))?;
     }
     Ok(())
+}
+
+/// The web/PWA client stores its synchronized library below the personal
+/// OneDrive app folder: `Apps/BookReader/BookReaderLibrary`. Users naturally
+/// choose the outer BookReader folder in the native directory picker, so use
+/// the nested protocol root whenever it is already present.
+fn resolve_library_root(selected: &Path) -> PathBuf {
+    let nested = selected.join("BookReaderLibrary");
+    if nested.join("books").is_dir() || nested.join("library-version.json").is_file() {
+        nested
+    } else {
+        selected.to_path_buf()
+    }
+}
+
+fn configured_library_root(settings: &AppSettings) -> PathBuf {
+    resolve_library_root(Path::new(&settings.library_dir))
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
@@ -585,18 +602,24 @@ fn parse_and_extract_epub(
 
 #[tauri::command]
 fn get_library_state(app: AppHandle) -> Result<LibraryState, String> {
-    let Some(settings) = load_app_settings(&app)? else {
+    let Some(mut settings) = load_app_settings(&app)? else {
         return Ok(LibraryState {
             library_dir: None,
             device_id: None,
             books: Vec::new(),
         });
     };
-    let library_dir = PathBuf::from(&settings.library_dir);
+    let library_dir = configured_library_root(&settings);
     initialize_library(&library_dir)?;
+    // Migrate an earlier selection of Apps/BookReader to its existing
+    // BookReaderLibrary child so the watcher follows the real synced root.
+    if Path::new(&settings.library_dir) != library_dir {
+        settings.library_dir = library_dir.to_string_lossy().to_string();
+        save_app_settings(&app, &settings)?;
+    }
     let books = scan_library_dir(&library_dir)?;
     Ok(LibraryState {
-        library_dir: Some(settings.library_dir),
+        library_dir: Some(library_dir.to_string_lossy().to_string()),
         device_id: Some(configured_device_id(&app)?),
         books,
     })
@@ -604,7 +627,7 @@ fn get_library_state(app: AppHandle) -> Result<LibraryState, String> {
 
 #[tauri::command]
 fn set_library_directory(app: AppHandle, path: String) -> Result<LibraryState, String> {
-    let library_dir = PathBuf::from(path);
+    let library_dir = resolve_library_root(Path::new(&path));
     initialize_library(&library_dir)?;
     let device_id = load_app_settings(&app)?
         .and_then(|settings| settings.device_id)
@@ -1060,6 +1083,15 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+    #[test]
+    fn recognizes_web_library_inside_onedrive_app_folder() {
+        let outer = std::env::temp_dir().join(format!("bookreader-onedrive-{}", Uuid::new_v4()));
+        let nested = outer.join("BookReaderLibrary");
+        fs::create_dir_all(nested.join("books")).unwrap();
+        assert_eq!(resolve_library_root(&outer), nested);
+        fs::remove_dir_all(outer).unwrap();
+    }
 
     #[test]
     fn soft_delete_and_restore_preserve_files_and_unseen_deletions() {
