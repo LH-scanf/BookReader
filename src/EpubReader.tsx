@@ -465,7 +465,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode, useIosPseudoPagination);
-        applyReaderTheme(rendition, themeRef.current, viewer);
+        applyReaderTheme(rendition, themeRef.current, viewer, iosWeb);
         rendition.themes.fontSize(`${fontSize}px`);
 
         let wheelLocked = false;
@@ -486,7 +486,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           // override the view size while determining why Safari shows blank pages.
           capturePagedFrameMetrics(rendition, view);
           installPreciseMapping(rendition);
-          applyReaderTheme(rendition, themeRef.current, viewer);
+          applyReaderTheme(rendition, themeRef.current, viewer, iosWeb);
           appliedHighlightCfisRef.current = refreshHighlights(rendition, annotationsRef.current, themeRef.current, appliedHighlightCfisRef.current);
         });
 
@@ -642,8 +642,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
   useEffect(() => {
     localStorage.setItem("reader-theme", readerTheme); themeRef.current = readerTheme;
-    if (renditionRef.current) applyReaderTheme(renditionRef.current, readerTheme, viewerRef.current);
-  }, [readerTheme]);
+    if (renditionRef.current) applyReaderTheme(renditionRef.current, readerTheme, viewerRef.current, iosWeb);
+  }, [iosWeb, readerTheme]);
   useEffect(() => {
     localStorage.setItem("reader-font-size", String(fontSize));
     const rendition = renditionRef.current;
@@ -833,7 +833,7 @@ function refreshHighlights(rendition: Rendition, records: AnnotationRecord[], th
   return records.map((record) => record.cfiRange);
 }
 
-function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTMLDivElement | null) {
+function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTMLDivElement | null, iosWeb = false) {
   const palette = theme === "dark"
     ? { background: "#282a2d", text: "#d8d5cf", link: "#aebed0", scrollTrack: "#282a2d", scrollThumb: "#62666c", focus: "#e0b94f" }
     : theme === "paper"
@@ -865,13 +865,13 @@ function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTML
       ${scrollLayout ? `
         html, body { max-width: 100% !important; overflow: hidden !important; }
         body { box-sizing: border-box !important; }
-      ` : `html, body {
+      ` : iosWeb ? `html, body {
         overflow: hidden !important;
         overscroll-behavior: none !important;
         -webkit-user-select: text !important;
         user-select: text !important;
         touch-action: auto;
-      }`}
+      }` : ""}
       img, svg, video, table { max-width: 100% !important; height: auto; }
       pre { max-width: 100% !important; white-space: pre-wrap !important; overflow-wrap: anywhere; }
       ::-webkit-scrollbar { width: 9px; height: 9px; }
