@@ -259,6 +259,25 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     if (before) setPagingLayout((current) => current ? { ...current, before, after: undefined } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, before });
     const pseudoMove = async () => {
       const getContainer = () => (rendition as unknown as { manager?: { container?: HTMLElement } }).manager?.container;
+      const getLineHeight = () => {
+        const raw = rendition.getContents() as unknown as Array<{ document?: Document }> | { document?: Document };
+        const contents = Array.isArray(raw) ? raw[0] : raw;
+        const body = contents?.document?.body;
+        if (!body) return 0;
+        const lineHeight = Number.parseFloat(contents.document?.defaultView?.getComputedStyle(body).lineHeight ?? "");
+        return Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 0;
+      };
+      const scrollToPagePosition = (container: HTMLElement, target: number) => {
+        const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
+        const clamped = Math.max(0, Math.min(maximum, target));
+        const lineHeight = getLineHeight();
+        // Keep the viewport on a text line boundary. A raw pixel offset can
+        // leave the first or last glyph partially clipped on iOS WebKit.
+        const aligned = clamped >= maximum - 2 || lineHeight === 0
+          ? clamped
+          : Math.max(0, Math.min(maximum, Math.round(clamped / lineHeight) * lineHeight));
+        container.scrollTo({ top: aligned, behavior: "auto" });
+      };
       const settle = async () => {
         await waitForAnimationFrames(2);
         await rendition.currentLocation();
@@ -269,12 +288,12 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       const step = container.clientHeight * 0.9;
       const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
       if (direction === "next" && container.scrollTop < maximum - 2) {
-        container.scrollTo({ top: Math.min(maximum, container.scrollTop + step), behavior: "auto" });
+        scrollToPagePosition(container, container.scrollTop + step);
         await settle();
         return;
       }
       if (direction === "prev" && container.scrollTop > 2) {
-        container.scrollTo({ top: Math.max(0, container.scrollTop - step), behavior: "auto" });
+        scrollToPagePosition(container, container.scrollTop - step);
         await settle();
         return;
       }
@@ -282,9 +301,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       await waitForAnimationFrames(2);
       const nextContainer = getContainer();
       if (direction === "prev" && nextContainer) {
-        nextContainer.scrollTo({ top: Math.max(0, nextContainer.scrollHeight - nextContainer.clientHeight - step * 0.1), behavior: "auto" });
+        scrollToPagePosition(nextContainer, nextContainer.scrollHeight - nextContainer.clientHeight - step * 0.1);
       } else if (nextContainer) {
-        nextContainer.scrollTo({ top: 0, behavior: "auto" });
+        scrollToPagePosition(nextContainer, 0);
       }
       await settle();
     };
@@ -438,7 +457,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           spread: "none", infinite: false, allowScriptedContent,
         });
         renditionRef.current = rendition;
-        registerBaseTheme(rendition, readingMode);
+        registerBaseTheme(rendition, readingMode, useIosPseudoPagination);
         applyReaderTheme(rendition, themeRef.current, viewer);
         rendition.themes.fontSize(`${fontSize}px`);
 
@@ -767,7 +786,7 @@ function PanelHeading({ title, subtitle, onClose }: { title: string; subtitle: s
   return <div className="panel-heading"><div><span>{title}</span><small>{subtitle}</small></div><button className="icon-button" aria-label={`关闭${title}`} onClick={onClose}><X size={18} /></button></div>;
 }
 
-function registerBaseTheme(rendition: Rendition, mode: ReadingMode) {
+function registerBaseTheme(rendition: Rendition, mode: ReadingMode, pseudoPaged = false) {
   rendition.themes.default({
     // Paginated chapters span multiple columns inside a wide iframe. Their
     // width, padding and overflow must remain under epub.js layout control.
@@ -775,7 +794,7 @@ function registerBaseTheme(rendition: Rendition, mode: ReadingMode) {
       "font-family": '"Noto Serif SC", "Songti SC", SimSun, serif !important',
       "line-height": "1.95 !important",
       "overflow-wrap": "anywhere",
-      ...(mode === "scroll" ? { padding: "32px 7% !important" } : {}),
+      ...(mode === "scroll" || pseudoPaged ? { padding: "24px 7% 32px !important" } : {}),
     },
     p: { "text-align": "justify", "text-indent": "2em" },
     a: { color: "var(--bookreader-link-color) !important" },
