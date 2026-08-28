@@ -144,10 +144,8 @@ h1, h2, h3, p { margin-top: 0; }
 .epub-paper iframe { border: 0 !important; }
 /* A paginated iframe contains the entire chapter, not just the visible page. */
 .mode-paged .epub-paper iframe { max-width: none !important; }
-/* epub.js owns an off-screen horizontal pagination stage. Do not expose it as
-   a native scroll surface: Safari otherwise lets the reader drag into the
-   stage's blank area instead of treating a swipe as a page turn. */
-.mode-paged:not(.reader-ios) .epub-container { overflow: hidden !important; overscroll-behavior: none; }
+/* iOS pseudo pagination hides its internal vertical scroll surface. Desktop
+   pagination deliberately has no override: epub.js owns that stage's styles. */
 .reader-ios.mode-paged .epub-container { overflow: hidden !important; overscroll-behavior: none; scrollbar-width: none; }
 .reader-ios.mode-paged .epub-container::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .chapter-heading { margin-bottom: 36px; text-align: center; }
