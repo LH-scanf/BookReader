@@ -66,7 +66,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const appliedHighlightCfisRef = useRef<string[]>([]);
   const chapterRef = useRef("正在载入");
   const chapterHrefRef = useRef(book.chapterHref ?? "");
-  const turnAnimationTimerRef = useRef<number | null>(null);
   const highlightReflowTimerRef = useRef<number | null>(null);
   const pagingDiagnosticEnabledRef = useRef(false);
   const iosWeb = !isDesktopApp() && isIOSWebDevice();
@@ -106,7 +105,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
-  const [pagingLayout, setPagingLayout] = useState<{ pageWidth: number; contentWidth: number; frameWidth: number } | null>(null);
+  const [pagingLayout, setPagingLayout] = useState<{ pageWidth: number; contentWidth: number; frameWidth: number; before?: string; after?: string } | null>(null);
 
   const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
     setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
@@ -117,6 +116,12 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     setPagingDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
   }, []);
   useEffect(() => { pagingDiagnosticEnabledRef.current = pagingDiagnosticEnabled; }, [pagingDiagnosticEnabled]);
+
+  const capturePagingScroll = useCallback((rendition: Rendition) => {
+    const container = (rendition as unknown as { manager?: { container?: HTMLElement } }).manager?.container;
+    if (!container) return "不可用";
+    return `${Math.round(container.scrollLeft)}/${Math.round(container.scrollWidth)}/${Math.round(container.clientWidth)}`;
+  }, []);
 
   const stabilizeIosPagedFrame = useCallback((view: EpubView) => {
     if (!iosWeb || readingMode !== "paged") return;
@@ -234,16 +239,20 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     localNavigationAtRef.current = Date.now();
     const rendition = renditionRef.current;
     if (!rendition) return;
-    if (iosWeb && viewerRef.current) {
-      const viewer = viewerRef.current;
-      viewer.classList.remove("page-turn-prev", "page-turn-next");
-      void viewer.offsetWidth;
-      viewer.classList.add(direction === "next" ? "page-turn-next" : "page-turn-prev");
-      if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
-      turnAnimationTimerRef.current = window.setTimeout(() => viewer.classList.remove("page-turn-prev", "page-turn-next"), 440);
-    }
-    pendingNavigationRef.current = rendition[direction]().catch((reason: unknown) => setReaderMessage(String(reason)));
-  }, [iosWeb]);
+    const before = pagingDiagnosticEnabledRef.current ? capturePagingScroll(rendition) : undefined;
+    if (before) setPagingLayout((current) => current ? { ...current, before, after: undefined } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, before });
+    // Deliberately no iOS transform/filter/animation here. Safari may
+    // composite an iframe into a blank layer when an ancestor is 3D animated.
+    pendingNavigationRef.current = rendition[direction]()
+      .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+      .then(() => {
+        if (!pagingDiagnosticEnabledRef.current) return;
+        const after = capturePagingScroll(rendition);
+        setPagingLayout((current) => current ? { ...current, after } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, after });
+        setReaderMessage(`分页舞台 scrollLeft/scrollWidth/clientWidth：${before ?? "-"} → ${after}`);
+      })
+      .catch((reason: unknown) => setReaderMessage(String(reason)));
+  }, [capturePagingScroll]);
 
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
@@ -523,7 +532,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       cancelled = true;
       removeViewerWheel?.();
       if (selectionPoll) window.clearInterval(selectionPoll);
-      if (turnAnimationTimerRef.current) window.clearTimeout(turnAnimationTimerRef.current);
       if (highlightReflowTimerRef.current) window.clearTimeout(highlightReflowTimerRef.current);
       void flushProgress().catch(() => undefined);
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
