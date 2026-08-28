@@ -342,3 +342,9 @@
 - 字号变化改为 140ms 防抖的受控重排：保留当前 CFI，重新 display，等待两帧布局稳定后移除并按原 CFI 重建高亮 SVG，从而避免高亮停留在旧字号坐标。
 - 阅读设置增加临时“分页诊断”与上一页/下一页测试按钮。开启后记录 iframe 内容触摸、Rendition 转发、方向识别、翻页请求和 `relocated`；用于区分 iPhone 手势链故障与 epub.js 分页接口/布局故障，不拦截原生触摸。
 - 桌面端识别 OneDrive 个人应用目录结构：用户选择 `Apps/BookReader` 时，若已有 `BookReaderLibrary/books` 或 `library-version.json`，自动将实际书库根目录切换到 `Apps/BookReader/BookReaderLibrary` 并保存该路径。启动和后续 OneDrive 文件到达时均会重新识别，避免将外层 App 文件夹误当作空书库。
+
+### 后续真机交互补充
+
+- iPhone 仍报告分页横滑无效且从左边缘滑回到了旧的微软登录网页。阅读器打开期间新增同文档 history guard：首个 iOS 返回手势停留在阅读器，而正常离开阅读器后会移除该保护；显式“返回书库”仍是离开阅读器的入口。
+- 阅读设置面板增加自身垂直滚动，避免字号、主题后的“分页诊断”被固定高度面板裁掉。诊断按钮未放回书页左右两侧，以保持 iOS 阅读区没有长期翻页按钮；用户从工具栏的“阅读设置”进入后向下滚动即可看到。
+- 本轮 `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过。下一次真机需要先验证设置中的上一页/下一页测试是否触发 `relocated`，再根据诊断计数决定是 iframe 事件桥、方向识别还是 epub.js 分页容器问题。

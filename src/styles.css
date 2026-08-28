@@ -169,7 +169,7 @@ h1, h2, h3, p { margin-top: 0; }
 .reader-error button { margin-top: 5px; padding: 8px 13px; border: 1px solid var(--reader-line); border-radius: 8px; background: var(--paper-bg); cursor: pointer; }
 .reader-panel { position: fixed; z-index: 30; top: 58px; bottom: 0; width: 320px; min-height: 0; display: flex; flex-direction: column; padding: 21px 14px; background: var(--panel-bg); color: var(--panel-text); box-shadow: 8px 0 28px var(--panel-shadow); animation: panel-in 170ms ease-out; transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease; }
 .toc-panel { left: 0; }
-.settings-panel { right: 0; box-shadow: -8px 0 28px var(--panel-shadow); animation-name: panel-in-right; }
+.settings-panel { right: 0; overflow-y: auto; overscroll-behavior: contain; box-shadow: -8px 0 28px var(--panel-shadow); animation-name: panel-in-right; }
 .search-panel { left: 0; width: 360px; }
 .notes-panel { right: 0; width: min(430px, 92vw); box-shadow: -8px 0 28px var(--panel-shadow); animation-name: panel-in-right; }
 @keyframes panel-in { from { transform: translateX(-16px); opacity: 0; } }

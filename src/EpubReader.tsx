@@ -119,6 +119,22 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     return () => { delete document.documentElement.dataset.readerIos; };
   }, [iosWeb]);
 
+  useEffect(() => {
+    if (!iosWeb) return;
+    // iOS reserves the outer 24px for system back navigation. The reader has
+    // its own explicit back button, so keep one same-document history entry
+    // while it is open instead of revealing the earlier Microsoft login page.
+    const marker = "bookreader-reader-history-guard";
+    const guardedState = { ...(history.state ?? {}), [marker]: true };
+    history.pushState(guardedState, "", location.href);
+    const keepReaderOpen = () => history.pushState(guardedState, "", location.href);
+    window.addEventListener("popstate", keepReaderOpen);
+    return () => {
+      window.removeEventListener("popstate", keepReaderOpen);
+      if (history.state?.[marker]) history.back();
+    };
+  }, [iosWeb]);
+
   const refreshNotes = useCallback(async () => {
     const records = await loadAnnotations(book.id);
     annotationsRef.current = records;
