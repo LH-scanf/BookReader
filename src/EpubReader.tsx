@@ -44,6 +44,13 @@ function isEditing(target: EventTarget | null) {
   return Boolean((target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']"));
 }
 
+function waitForAnimationFrames(count = 2) {
+  return new Promise<void>((resolve) => {
+    const next = (remaining: number) => requestAnimationFrame(() => remaining <= 1 ? resolve() : next(remaining - 1));
+    next(count);
+  });
+}
+
 export default function EpubReader({ book, deviceId, initialPreviewCfi = null, onBack, onOpenNotes, onProgress }: ReaderProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const epubBookRef = useRef<Book | null>(null);
@@ -80,7 +87,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [readingMode, setReadingMode] = useState<ReadingMode>(() => localStorage.getItem("reader-mode") === "scroll" ? "scroll" : "paged");
-  const useIosSnapManager = iosWeb && readingMode === "paged";
+  const useIosPseudoPagination = iosWeb && readingMode === "paged";
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
     const value = localStorage.getItem("reader-theme");
     return value === "light" || value === "dark" ? value : "paper";
@@ -123,8 +130,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const capturePagingScroll = useCallback((rendition: Rendition) => {
     const container = (rendition as unknown as { manager?: { container?: HTMLElement } }).manager?.container;
     if (!container) return "不可用";
-    return `${Math.round(container.scrollLeft)}/${Math.round(container.scrollWidth)}/${Math.round(container.clientWidth)}`;
-  }, []);
+    return useIosPseudoPagination
+      ? `${Math.round(container.scrollTop)}/${Math.round(container.scrollHeight)}/${Math.round(container.clientHeight)}`
+      : `${Math.round(container.scrollLeft)}/${Math.round(container.scrollWidth)}/${Math.round(container.clientWidth)}`;
+  }, [useIosPseudoPagination]);
 
   const capturePagedFrameMetrics = useCallback((rendition: Rendition, suppliedView?: EpubView) => {
     if (!pagingDiagnosticEnabledRef.current) return null;
@@ -248,19 +257,50 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     if (!rendition) return;
     const before = pagingDiagnosticEnabledRef.current ? capturePagingScroll(rendition) : undefined;
     if (before) setPagingLayout((current) => current ? { ...current, before, after: undefined } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, before });
+    const pseudoMove = async () => {
+      const getContainer = () => (rendition as unknown as { manager?: { container?: HTMLElement } }).manager?.container;
+      const settle = async () => {
+        await waitForAnimationFrames(2);
+        await rendition.currentLocation();
+        rendition.reportLocation();
+      };
+      const container = getContainer();
+      if (!container) return;
+      const step = container.clientHeight * 0.9;
+      const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
+      if (direction === "next" && container.scrollTop < maximum - 2) {
+        container.scrollTo({ top: Math.min(maximum, container.scrollTop + step), behavior: "auto" });
+        await settle();
+        return;
+      }
+      if (direction === "prev" && container.scrollTop > 2) {
+        container.scrollTo({ top: Math.max(0, container.scrollTop - step), behavior: "auto" });
+        await settle();
+        return;
+      }
+      await rendition[direction]();
+      await waitForAnimationFrames(2);
+      const nextContainer = getContainer();
+      if (direction === "prev" && nextContainer) {
+        nextContainer.scrollTo({ top: Math.max(0, nextContainer.scrollHeight - nextContainer.clientHeight - step * 0.1), behavior: "auto" });
+      } else if (nextContainer) {
+        nextContainer.scrollTo({ top: 0, behavior: "auto" });
+      }
+      await settle();
+    };
     // Deliberately no iOS transform/filter/animation here. Safari may
     // composite an iframe into a blank layer when an ancestor is 3D animated.
-    pendingNavigationRef.current = rendition[direction]()
+    pendingNavigationRef.current = (useIosPseudoPagination ? pseudoMove() : rendition[direction]())
       .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
       .then(() => {
         if (!pagingDiagnosticEnabledRef.current) return;
         const after = capturePagingScroll(rendition);
         setPagingLayout((current) => current ? { ...current, after } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, after });
         const frameMetrics = capturePagedFrameMetrics(rendition);
-        setReaderMessage(`分页舞台 scrollLeft/scrollWidth/clientWidth：${before ?? "-"} → ${after}${frameMetrics ? `\n${frameMetrics}` : ""}`);
+        setReaderMessage(`${useIosPseudoPagination ? "伪分页 scrollTop/scrollHeight/clientHeight" : "分页舞台 scrollLeft/scrollWidth/clientWidth"}：${before ?? "-"} → ${after}${frameMetrics ? `\n${frameMetrics}` : ""}`);
       })
       .catch((reason: unknown) => setReaderMessage(String(reason)));
-  }, [capturePagedFrameMetrics, capturePagingScroll]);
+  }, [capturePagedFrameMetrics, capturePagingScroll, useIosPseudoPagination]);
 
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
@@ -390,24 +430,13 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         if (cancelled) return;
         const rendition = epubBook.renderTo(viewer, {
           width: "100%", height: "100%",
-          flow: readingMode === "paged" ? "paginated" : "scrolled-doc",
-          // epub.js owns the horizontal stage used for reflowable pagination.
-          // Keeping it hidden prevents Safari from exposing that whole stage as
-          // a draggable blank canvas; next/prev still change its scroll offset
-          // programmatically one page at a time.
-          // iOS WebKit renders DefaultViewManager's hidden multi-column stage
-          // blank even when its scroll offsets are correct. Use epub.js's own
-          // continuous paginated manager and Snap only on iOS; desktop keeps
-          // the established default manager.
-          overflow: useIosSnapManager ? "scroll" : "hidden",
-          manager: useIosSnapManager ? "continuous" : "default",
-          snap: useIosSnapManager,
-          // Safari renders this EPUB's srcdoc-based multi-column iframe blank
-          // after horizontal movement. Test the same isolated document as a
-          // blob URL; it keeps the existing sandbox and script policy intact.
-          method: iosWeb ? "blobUrl" : undefined,
+          // iOS pseudo pagination uses a vertically laid out document. It
+          // avoids WebKit's blank rendering of horizontally shifted CSS columns.
+          flow: useIosPseudoPagination ? "scrolled-doc" : readingMode === "paged" ? "paginated" : "scrolled-doc",
+          overflow: useIosPseudoPagination ? "scroll" : "hidden",
+          manager: "default",
           spread: "none", infinite: false, allowScriptedContent,
-        } as never);
+        });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode);
         applyReaderTheme(rendition, themeRef.current, viewer);
@@ -471,7 +500,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           if (iframeDiagnostic) { recordIframeDiagnostic("touchend"); return; }
           const start = touch;
           touch = null;
-          if (!start || readingMode !== "paged" || event.changedTouches.length !== 1) return;
+          if (!start || readingMode !== "paged" || iosWeb || event.changedTouches.length !== 1) return;
           if (contents.window.getSelection()?.toString().trim()) return;
           // Leave the system's edge-back gesture to Safari.
           const width = contents.window.innerWidth || window.innerWidth;
@@ -557,7 +586,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [allowScriptedContent, book.id, iframeDiagnostic, readingMode, useIosSnapManager, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
+  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
