@@ -255,6 +255,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     localNavigationAtRef.current = Date.now();
     const rendition = renditionRef.current;
     if (!rendition) return;
+    // Keep the desktop renderer on epub.js' original navigation path. The
+    // pseudo pager is an iOS WebKit-only workaround and must not share its
+    // scroll or diagnostic lifecycle with Windows/Tauri pagination.
+    if (!useIosPseudoPagination) {
+      pendingNavigationRef.current = rendition[direction]().catch((reason: unknown) => {
+        setReaderMessage(String(reason));
+      });
+      return;
+    }
     const before = pagingDiagnosticEnabledRef.current ? capturePagingScroll(rendition) : undefined;
     if (before) setPagingLayout((current) => current ? { ...current, before, after: undefined } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, before });
     const pseudoMove = async () => {
@@ -307,9 +316,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       }
       await settle();
     };
-    // Deliberately no iOS transform/filter/animation here. Safari may
-    // composite an iframe into a blank layer when an ancestor is 3D animated.
-    pendingNavigationRef.current = (useIosPseudoPagination ? pseudoMove() : rendition[direction]())
+    pendingNavigationRef.current = pseudoMove()
       .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
       .then(() => {
         if (!pagingDiagnosticEnabledRef.current) return;
