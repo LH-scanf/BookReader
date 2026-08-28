@@ -148,7 +148,7 @@ h1, h2, h3, p { margin-top: 0; }
    a native scroll surface: Safari otherwise lets the reader drag into the
    stage's blank area instead of treating a swipe as a page turn. */
 .mode-paged:not(.reader-ios) .epub-container { overflow: hidden !important; overscroll-behavior: none; }
-.reader-ios.mode-paged .epub-container { overflow-x: hidden !important; overflow-y: scroll !important; overscroll-behavior: none; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.reader-ios.mode-paged .epub-container { overflow: hidden !important; overscroll-behavior: none; scrollbar-width: none; }
 .reader-ios.mode-paged .epub-container::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .chapter-heading { margin-bottom: 36px; text-align: center; }
 .chapter-heading span { color: var(--reader-muted); font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 12px; }
