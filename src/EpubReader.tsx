@@ -349,10 +349,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         const rendition = epubBook.renderTo(viewer, {
           width: "100%", height: "100%",
           flow: readingMode === "paged" ? "paginated" : "scrolled-doc",
-          // DefaultViewManager implements reflowable pagination by moving its
-          // horizontal stage scroll position. iOS does not reliably advance a
-          // hidden stage, which left the viewport in a blank trailing area.
-          overflow: "scroll",
+          // epub.js owns the horizontal stage used for reflowable pagination.
+          // Keeping it hidden prevents Safari from exposing that whole stage as
+          // a draggable blank canvas; next/prev still change its scroll offset
+          // programmatically one page at a time.
+          overflow: "hidden",
           manager: "default", spread: "none", infinite: false, allowScriptedContent,
         });
         renditionRef.current = rendition;
