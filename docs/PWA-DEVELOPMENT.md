@@ -348,3 +348,9 @@
 - iPhone 仍报告分页横滑无效且从左边缘滑回到了旧的微软登录网页。阅读器打开期间新增同文档 history guard：首个 iOS 返回手势停留在阅读器，而正常离开阅读器后会移除该保护；显式“返回书库”仍是离开阅读器的入口。
 - 阅读设置面板增加自身垂直滚动，避免字号、主题后的“分页诊断”被固定高度面板裁掉。诊断按钮未放回书页左右两侧，以保持 iOS 阅读区没有长期翻页按钮；用户从工具栏的“阅读设置”进入后向下滚动即可看到。
 - 本轮 `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过。下一次真机需要先验证设置中的上一页/下一页测试是否触发 `relocated`，再根据诊断计数决定是 iframe 事件桥、方向识别还是 epub.js 分页容器问题。
+
+### 分页容器修正
+
+- 真机诊断显示“下一页测试”会发出翻页请求，但 `relocated` 保持 0，页面被推进到空白区域；说明手势之前不是唯一问题，epub.js `DefaultViewManager` 的横向 stage 无法在 iOS 的 `overflow: hidden` 下可靠推进。
+- 分页 render 的 stage 改为 `overflow: scroll`，并通过 CSS 只允许 `overflow-x`、禁止 `overflow-y`、隐藏滚动条、启用 iOS 横向惯性滚动。DefaultViewManager 的 `next/prev` 与用户横滑现在共用同一个 `scrollLeft` 通道；不重新启用 `touchmove.preventDefault()`。
+- 本轮 `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过，仍需真机验证下一页测试和中心区域横滑实际触发 `relocated`。
