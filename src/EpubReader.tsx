@@ -402,8 +402,12 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           overflow: useIosSnapManager ? "scroll" : "hidden",
           manager: useIosSnapManager ? "continuous" : "default",
           snap: useIosSnapManager,
+          // Safari renders this EPUB's srcdoc-based multi-column iframe blank
+          // after horizontal movement. Test the same isolated document as a
+          // blob URL; it keeps the existing sandbox and script policy intact.
+          method: iosWeb ? "blobUrl" : undefined,
           spread: "none", infinite: false, allowScriptedContent,
-        });
+        } as never);
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode);
         applyReaderTheme(rendition, themeRef.current, viewer);
