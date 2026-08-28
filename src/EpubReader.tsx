@@ -80,6 +80,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [readingMode, setReadingMode] = useState<ReadingMode>(() => localStorage.getItem("reader-mode") === "scroll" ? "scroll" : "paged");
+  const useIosSnapManager = iosWeb && readingMode === "paged";
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
     const value = localStorage.getItem("reader-theme");
     return value === "light" || value === "dark" ? value : "paper";
@@ -394,8 +395,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           // Keeping it hidden prevents Safari from exposing that whole stage as
           // a draggable blank canvas; next/prev still change its scroll offset
           // programmatically one page at a time.
-          overflow: "hidden",
-          manager: "default", spread: "none", infinite: false, allowScriptedContent,
+          // iOS WebKit renders DefaultViewManager's hidden multi-column stage
+          // blank even when its scroll offsets are correct. Use epub.js's own
+          // continuous paginated manager and Snap only on iOS; desktop keeps
+          // the established default manager.
+          overflow: useIosSnapManager ? "scroll" : "hidden",
+          manager: useIosSnapManager ? "continuous" : "default",
+          snap: useIosSnapManager,
+          spread: "none", infinite: false, allowScriptedContent,
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode);
@@ -546,7 +553,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [allowScriptedContent, book.id, iframeDiagnostic, readingMode, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
+  }, [allowScriptedContent, book.id, iframeDiagnostic, readingMode, useIosSnapManager, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;

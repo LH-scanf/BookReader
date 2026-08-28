@@ -147,7 +147,9 @@ h1, h2, h3, p { margin-top: 0; }
 /* epub.js owns an off-screen horizontal pagination stage. Do not expose it as
    a native scroll surface: Safari otherwise lets the reader drag into the
    stage's blank area instead of treating a swipe as a page turn. */
-.mode-paged .epub-container { overflow: hidden !important; overscroll-behavior: none; }
+.mode-paged:not(.reader-ios) .epub-container { overflow: hidden !important; overscroll-behavior: none; }
+.reader-ios.mode-paged .epub-container { overflow-x: scroll !important; overflow-y: hidden !important; overscroll-behavior: none; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.reader-ios.mode-paged .epub-container::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .chapter-heading { margin-bottom: 36px; text-align: center; }
 .chapter-heading span { color: var(--reader-muted); font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 12px; }
 .chapter-heading h1 { margin: 10px 0 0; font-size: 1.5em; font-weight: 500; letter-spacing: .08em; }
