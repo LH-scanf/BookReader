@@ -24,6 +24,7 @@ type LocationEvent = { start: { cfi: string; href: string; percentage?: number; 
 type EpubContents = { document: Document; window: Window; cfiFromRange?: (range: Range) => string };
 type EpubView = {
   contents?: EpubContents;
+  iframe?: HTMLIFrameElement;
   _width?: number;
   layout?: { pageWidth?: number; height?: number };
   reframe?: (width: number, height: number) => void;
@@ -106,6 +107,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
   const [pagingLayout, setPagingLayout] = useState<{ pageWidth: number; contentWidth: number; frameWidth: number; before?: string; after?: string } | null>(null);
+  const [pagingFrameMetrics, setPagingFrameMetrics] = useState<{ viewWidth: number; iframeWidth: number; rootWidth: number; bodyWidth: number; stageWidth: number; stageLeft: number; pageWidth: number; delta: number } | null>(null);
 
   const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
     setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
@@ -123,23 +125,27 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     return `${Math.round(container.scrollLeft)}/${Math.round(container.scrollWidth)}/${Math.round(container.clientWidth)}`;
   }, []);
 
-  const stabilizeIosPagedFrame = useCallback((view: EpubView) => {
-    if (!iosWeb || readingMode !== "paged") return;
-    // Safari can report a Range width of only the visible CSS column. epub.js
-    // then makes the iframe one page wide although the chapter has more pages.
-    // scrollWidth retains the complete column track, so use it to reframe.
-    window.requestAnimationFrame(() => {
-      const document = view.contents?.document;
-      const viewer = viewerRef.current;
-      if (!document || !viewer || !view.reframe) return;
-      const pageWidth = Math.max(1, Math.round(view.layout?.pageWidth ?? viewer.clientWidth));
-      const contentWidth = Math.max(pageWidth, document.documentElement.scrollWidth, document.body?.scrollWidth ?? 0);
-      const frameWidth = Math.ceil(contentWidth / pageWidth) * pageWidth;
-      if (pagingDiagnosticEnabledRef.current) setPagingLayout({ pageWidth, contentWidth, frameWidth });
-      if (Math.abs((view._width ?? 0) - frameWidth) < 2) return;
-      view.reframe(frameWidth, Math.max(1, Math.round(view.layout?.height ?? viewer.clientHeight)));
-    });
-  }, [iosWeb, readingMode]);
+  const capturePagedFrameMetrics = useCallback((rendition: Rendition, suppliedView?: EpubView) => {
+    if (!pagingDiagnosticEnabledRef.current) return null;
+    const manager = (rendition as unknown as { manager?: { container?: HTMLElement; layout?: { pageWidth?: number; delta?: number }; views?: { last?: () => EpubView } } }).manager;
+    const view = suppliedView ?? manager?.views?.last?.();
+    const document = view?.contents?.document;
+    const container = manager?.container;
+    if (!view || !document || !container) return null;
+    const metrics = {
+      viewWidth: Math.round(view._width ?? 0),
+      iframeWidth: Math.round(view.iframe?.getBoundingClientRect().width ?? 0),
+      rootWidth: Math.round(document.documentElement.scrollWidth),
+      bodyWidth: Math.round(document.body?.scrollWidth ?? 0),
+      stageWidth: Math.round(container.scrollWidth),
+      stageLeft: Math.round(container.scrollLeft),
+      pageWidth: Math.round(manager?.layout?.pageWidth ?? 0),
+      delta: Math.round(manager?.layout?.delta ?? 0),
+    };
+    setPagingFrameMetrics(metrics);
+    setPagingLayout((current) => ({ pageWidth: metrics.pageWidth, contentWidth: metrics.rootWidth, frameWidth: metrics.viewWidth, before: current?.before, after: current?.after }));
+    return `view ${metrics.viewWidth} · iframe ${metrics.iframeWidth} · root/body ${metrics.rootWidth}/${metrics.bodyWidth} · stage ${metrics.stageLeft}/${metrics.stageWidth} · page/delta ${metrics.pageWidth}/${metrics.delta}`;
+  }, []);
 
   useEffect(() => { onProgressRef.current = onProgress; }, [onProgress]);
   useEffect(() => { onOpenNotesRef.current = onOpenNotes; }, [onOpenNotes]);
@@ -249,10 +255,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         if (!pagingDiagnosticEnabledRef.current) return;
         const after = capturePagingScroll(rendition);
         setPagingLayout((current) => current ? { ...current, after } : { pageWidth: 0, contentWidth: 0, frameWidth: 0, after });
-        setReaderMessage(`分页舞台 scrollLeft/scrollWidth/clientWidth：${before ?? "-"} → ${after}`);
+        const frameMetrics = capturePagedFrameMetrics(rendition);
+        setReaderMessage(`分页舞台 scrollLeft/scrollWidth/clientWidth：${before ?? "-"} → ${after}${frameMetrics ? `\n${frameMetrics}` : ""}`);
       })
       .catch((reason: unknown) => setReaderMessage(String(reason)));
-  }, [capturePagingScroll]);
+  }, [capturePagedFrameMetrics, capturePagingScroll]);
 
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
@@ -409,7 +416,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         // `rendered` receives an IframeView, not Contents. Keep it for visual
         // work only; event wiring belongs in the content hook below.
         rendition.on("rendered", (_section: unknown, view: EpubView) => {
-          stabilizeIosPagedFrame(view);
+          // Phase 2: observe epub.js's own expand/reframe result only. Do not
+          // override the view size while determining why Safari shows blank pages.
+          capturePagedFrameMetrics(rendition, view);
           installPreciseMapping(rendition);
           applyReaderTheme(rendition, themeRef.current, viewer);
           appliedHighlightCfisRef.current = refreshHighlights(rendition, annotationsRef.current, themeRef.current, appliedHighlightCfisRef.current);
