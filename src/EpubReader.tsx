@@ -498,6 +498,33 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("wheel", onWheel, { passive: false });
             contents.document.addEventListener("touchstart", () => recordPagingDiagnostic("content-start"), { passive: true });
             contents.document.addEventListener("touchend", () => recordPagingDiagnostic("content-end"), { passive: true });
+            if (useIosPseudoPagination) {
+              // The WebKit iframe does not reliably forward TouchEvents through
+              // Rendition. Bind inside the current EPUB document instead; no
+              // touchmove interception means native long-press selection stays intact.
+              let iosTouch: { x: number; y: number; at: number } | null = null;
+              contents.document.addEventListener("touchstart", (event: TouchEvent) => {
+                if (event.touches.length !== 1) { iosTouch = null; return; }
+                const point = event.touches[0];
+                iosTouch = { x: point.clientX, y: point.clientY, at: performance.now() };
+              }, { passive: true });
+              contents.document.addEventListener("touchend", (event: TouchEvent) => {
+                const start = iosTouch;
+                iosTouch = null;
+                if (!start || event.changedTouches.length !== 1) return;
+                // Keep Safari's history gesture at the outer edges and do not
+                // turn a page while the user is making a text selection.
+                const width = contents.window.innerWidth || window.innerWidth;
+                if (start.x < 24 || start.x > width - 24) return;
+                if (contents.window.getSelection()?.toString().trim()) return;
+                const end = event.changedTouches[0];
+                const direction = swipeDirection(start, { x: end.clientX, y: end.clientY }, performance.now() - start.at);
+                if (!direction) return;
+                recordPagingDiagnostic("recognized");
+                recordPagingDiagnostic(direction === "next" ? "next-requested" : "prev-requested");
+                turnPage(direction);
+              }, { passive: true });
+            }
             let selectionTimer: number | null = null;
             const scheduleSelectionToolbar = () => {
               if (selectionTimer) window.clearTimeout(selectionTimer);
