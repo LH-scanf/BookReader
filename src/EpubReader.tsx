@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
-import { isMobileReaderCenterTap } from "./reader/mobile-reader-ui";
+import { isMobileReaderCenterTap, mapIframePointToViewport } from "./reader/mobile-reader-ui";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { getCurrentUiMode } from "./ui/ui-mode";
@@ -173,22 +173,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     if (!iosWeb) return;
     document.documentElement.dataset.readerIos = "true";
     return () => { delete document.documentElement.dataset.readerIos; };
-  }, [iosWeb]);
-
-  useEffect(() => {
-    if (!iosWeb) return;
-    // iOS reserves the outer 24px for system back navigation. The reader has
-    // its own explicit back button, so keep one same-document history entry
-    // while it is open instead of revealing the earlier Microsoft login page.
-    const marker = "bookreader-reader-history-guard";
-    const guardedState = { ...(history.state ?? {}), [marker]: true };
-    history.pushState(guardedState, "", location.href);
-    const keepReaderOpen = () => history.pushState(guardedState, "", location.href);
-    window.addEventListener("popstate", keepReaderOpen);
-    return () => {
-      window.removeEventListener("popstate", keepReaderOpen);
-      if (history.state?.[marker]) history.back();
-    };
   }, [iosWeb]);
 
   const refreshNotes = useCallback(async () => {
@@ -545,14 +529,37 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
                 if (!start || event.changedTouches.length !== 1) return;
                 const end = event.changedTouches[0];
                 const target = event.target as Element | null;
+                const frame = contents.window.frameElement as HTMLElement | null;
+                const frameRect = frame?.getBoundingClientRect();
                 if (isMobileReaderCenterTap({
-                  start, end: { x: end.clientX, y: end.clientY }, elapsedMs: performance.now() - start.at,
-                  viewport: { width: contents.window.innerWidth || window.innerWidth, height: contents.window.innerHeight || window.innerHeight },
+                  start: frameRect ? mapIframePointToViewport(start, frameRect) : start,
+                  end: frameRect ? mapIframePointToViewport({ x: end.clientX, y: end.clientY }, frameRect) : { x: end.clientX, y: end.clientY },
+                  elapsedMs: performance.now() - start.at,
+                  viewport: { width: window.innerWidth, height: window.innerHeight },
                   hasSelection: Boolean(contents.window.getSelection()?.toString().trim()),
                   interactiveTarget: Boolean(target?.closest("a, button, input, textarea, select, [contenteditable='true']")),
                 })) toggleMobileControls();
               }, { passive: true });
               contents.document.addEventListener("touchcancel", () => { mobileTapStart = null; }, { passive: true });
+            }
+            if (iosWeb && mobileReader) {
+              let edgeSwipeStart: { x: number; y: number; at: number } | null = null;
+              contents.document.addEventListener("touchstart", (event: TouchEvent) => {
+                if (event.touches.length !== 1) { edgeSwipeStart = null; return; }
+                const point = event.touches[0];
+                edgeSwipeStart = { x: point.clientX, y: point.clientY, at: performance.now() };
+              }, { passive: true });
+              contents.document.addEventListener("touchmove", (event: TouchEvent) => {
+                const start = edgeSwipeStart;
+                const point = event.touches[0];
+                if (!start || !point || start.x > 24 || performance.now() - start.at > 400) return;
+                if (contents.window.getSelection()?.toString().trim()) return;
+                const dx = point.clientX - start.x;
+                const dy = point.clientY - start.y;
+                if (dx > 12 && dx > Math.abs(dy) * 1.3 && event.cancelable) event.preventDefault();
+              }, { passive: false });
+              contents.document.addEventListener("touchend", () => { edgeSwipeStart = null; }, { passive: true });
+              contents.document.addEventListener("touchcancel", () => { edgeSwipeStart = null; }, { passive: true });
             }
             if (useIosPseudoPagination) {
               // The WebKit iframe does not reliably forward TouchEvents through
@@ -949,7 +956,7 @@ function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, viewer: HTML
     style.textContent = `
       html, body { scrollbar-width: thin; scrollbar-color: ${palette.scrollThumb} ${palette.scrollTrack}; }
       ${scrollLayout ? `
-        html, body { max-width: 100% !important; overflow: hidden !important; }
+        html, body { max-width: 100% !important; overflow: hidden !important; ${iosWeb ? "overscroll-behavior-x: none !important; touch-action: pan-y;" : ""} }
         body { box-sizing: border-box !important; }
       ` : iosWeb ? `html, body {
         overflow: hidden !important;

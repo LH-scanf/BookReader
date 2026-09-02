@@ -66,7 +66,7 @@
 :root[data-appearance="dark"] .mobile-book-action-sheet .mobile-book-action-sheet-cancel { background: #36383c; }
 
 /* Task 3A: Mobile reader chrome overlays the shared rendition without changing its layout. */
-.bookreader-mobile .reader-mobile { height: 100dvh; }
+.bookreader-mobile .reader-mobile { height: 100dvh; overscroll-behavior-x: none; touch-action: pan-y; }
 .bookreader-mobile .reader-mobile .reading-stage, .bookreader-mobile .reader-mobile.mode-scroll .reading-stage { width: 100%; height: 100dvh; display: block; padding: 0; overflow: hidden; }
 .bookreader-mobile .reader-mobile .reading-paper, .bookreader-mobile .reader-mobile.mode-scroll .reading-paper { width: 100%; height: 100dvh; min-height: 0; max-width: none; margin: 0; padding: 0; border-radius: 0; background: var(--reader-bg); box-shadow: none; }
 .bookreader-mobile .reader-mobile .epub-paper { overflow: hidden; }
