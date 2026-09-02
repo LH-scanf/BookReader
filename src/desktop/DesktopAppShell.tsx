@@ -1,8 +1,8 @@
 import { BookOpen, Menu, PanelLeftClose } from "lucide-react";
-import type { AppShellProps } from "../ui/app-shell";
+import type { DesktopAppShellProps } from "../ui/app-shell";
 import "./desktop.css";
 
-export function DesktopAppShell({ sidebarOpen, onCloseSidebar, onOpenSidebar, navigationItems, footerItem, sidebarStatus, message, children }: AppShellProps) {
+export function DesktopAppShell({ sidebarOpen, onCloseSidebar, onOpenSidebar, navigationItems, footerItem, sidebarStatus, message, children }: DesktopAppShellProps) {
   return (
     <div className={`bookreader-desktop app-shell ${sidebarOpen ? "sidebar-is-open" : "sidebar-is-closed"}`} data-ui-mode="desktop">
       {sidebarOpen && <button className="sidebar-backdrop" aria-label="关闭导航" onClick={onCloseSidebar} />}

@@ -25,6 +25,17 @@
 
 `resolveUiMode` 的自动化回归覆盖 Tauri 窄窗口、Desktop Web 和 Mobile Web。`EpubReader.tsx` 不属于 Task 0A 的改动范围。
 
+## Task 1：Mobile 底部导航骨架
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-NAV-01 | 在 Mobile shell 打开书库、笔记、设置 | 固定底栏只有“书库 / 笔记 / 设置”三个入口；当前入口有克制的 active 状态。 |
+| MOBILE-NAV-02 | 在 Mobile shell 检查导航区域 | 不显示汉堡菜单、侧边栏、sidebar backdrop、展开/收起按钮或“已读”一级入口。 |
+| MOBILE-NAV-03 | 在 Mobile shell 三个入口间切换 | 复用既有 `library`、`notes`、`settings` 状态与数据；切换不丢失书库、笔记或设置状态。 |
+| MOBILE-NAV-04 | 在 iPhone 安全区及长内容页面滚动 | 底栏固定在 `safe-area-inset-bottom` 上方，书架、笔记和设置内容不会被遮挡。 |
+| MOBILE-NAV-05 | 在 Desktop shell 检查导航 | 原侧边栏及“我的书库 / 已读 / 整书笔记 / 设置”全部保留，视觉和行为不受 Mobile 改动影响。 |
+| MOBILE-NAV-06 | 打开阅读器 | `view === "reader"` 时不显示 Mobile 底部导航；阅读器保持现有实现。 |
+
 ## PWA 新增用例
 
 | 编号 | 操作 | 预期与当前验证范围 |

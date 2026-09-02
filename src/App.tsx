@@ -212,32 +212,34 @@ function App() {
     return <div className={`bookreader-${uiMode}`} data-ui-mode={uiMode}><Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} deviceId={library.deviceId ?? null} initialPreviewCfi={readerTargetCfi} onBack={() => { setReaderTargetCfi(null); setView("library"); }} onOpenNotes={() => { setReaderTargetCfi(null); setNotesBookId(activeBook.id); setView("notes"); }} onProgress={updateProgress} /></Suspense></div>;
   }
 
-  const closeSidebarForMobile = () => { if (uiMode === "mobile") setSidebarOpen(false); };
-  const navigationItems = [
-    { label: "我的书库", icon: <Library size={18} />, active: view === "library" && filter === "all", onSelect: () => { setView("library"); setFilter("all"); closeSidebarForMobile(); } },
-    { label: "已读", icon: <CheckCircle2 size={18} />, active: view === "library" && filter === "finished", onSelect: () => { setView("library"); setFilter("finished"); closeSidebarForMobile(); } },
-    { label: "整书笔记", icon: <NotebookPen size={18} />, active: view === "notes", onSelect: () => { setView("notes"); closeSidebarForMobile(); } },
+  const desktopNavigationItems = [
+    { label: "我的书库", icon: <Library size={18} />, active: view === "library" && filter === "all", onSelect: () => { setView("library"); setFilter("all"); } },
+    { label: "已读", icon: <CheckCircle2 size={18} />, active: view === "library" && filter === "finished", onSelect: () => { setView("library"); setFilter("finished"); } },
+    { label: "整书笔记", icon: <NotebookPen size={18} />, active: view === "notes", onSelect: () => setView("notes") },
   ];
-  const footerItem = { label: "设置", icon: <Settings size={18} />, active: view === "settings", onSelect: () => { setView("settings"); closeSidebarForMobile(); } };
+  const footerItem = { label: "设置", icon: <Settings size={18} />, active: view === "settings", onSelect: () => setView("settings") };
+  const mobileNavigationItems = [
+    { label: "书库", icon: <Library size={18} />, active: view === "library", onSelect: () => { setView("library"); setFilter("all"); } },
+    { label: "笔记", icon: <NotebookPen size={18} />, active: view === "notes", onSelect: () => setView("notes") },
+    { label: "设置", icon: <Settings size={18} />, active: view === "settings", onSelect: () => setView("settings") },
+  ];
   const sidebarStatus = sidebarOpen && library.libraryDir && <div className="sidebar-sync"><span className="sync-dot" />{isDesktopApp() ? "书库目录已连接" : "本机离线书库"}</div>;
   const shellMessage = message && <div className="app-message" role="status"><span>{message}</span><button aria-label="关闭提示" onClick={() => setMessage(null)}><X size={15} /></button></div>;
-  const AppShell = uiMode === "mobile" ? MobileAppShell : DesktopAppShell;
-
-  return (
-    <AppShell sidebarOpen={sidebarOpen} onCloseSidebar={() => setSidebarOpen(false)} onOpenSidebar={() => setSidebarOpen(true)} navigationItems={navigationItems} footerItem={footerItem} sidebarStatus={sidebarStatus} message={shellMessage}>
-      {view === "settings" ? (
-          <SettingsView libraryDir={library.libraryDir} busy={busy} onSelectLibrary={selectLibrary} appearance={appearance} onAppearanceChange={setAppearance} />
-        ) : loading ? (
-          <div className="page-loading"><span className="loading-spinner" />正在读取书库…</div>
-        ) : !library.libraryDir ? (
-          <LibrarySetup busy={busy} onSelect={selectLibrary} />
-        ) : view === "notes" ? (
-          <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={(book, cfi) => { setActiveBook(book); setReaderTargetCfi(cfi); setNotesBookId(book.id); setView("reader"); }} />
-        ) : (
-          <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
-        )}
-    </AppShell>
+  const pageContent = view === "settings" ? (
+    <SettingsView libraryDir={library.libraryDir} busy={busy} onSelectLibrary={selectLibrary} appearance={appearance} onAppearanceChange={setAppearance} />
+  ) : loading ? (
+    <div className="page-loading"><span className="loading-spinner" />正在读取书库…</div>
+  ) : !library.libraryDir ? (
+    <LibrarySetup busy={busy} onSelect={selectLibrary} />
+  ) : view === "notes" ? (
+    <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={(book, cfi) => { setActiveBook(book); setReaderTargetCfi(cfi); setNotesBookId(book.id); setView("reader"); }} />
+  ) : (
+    <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
   );
+
+  if (uiMode === "mobile") return <MobileAppShell navigationItems={mobileNavigationItems} message={shellMessage}>{pageContent}</MobileAppShell>;
+
+  return <DesktopAppShell sidebarOpen={sidebarOpen} onCloseSidebar={() => setSidebarOpen(false)} onOpenSidebar={() => setSidebarOpen(true)} navigationItems={desktopNavigationItems} footerItem={footerItem} sidebarStatus={sidebarStatus} message={shellMessage}>{pageContent}</DesktopAppShell>;
 }
 
 function LibrarySetup({ busy, onSelect }: { busy: boolean; onSelect: () => void }) {

@@ -1,2 +1,9 @@
-/* Mobile-only shell rules belong here. Shared legacy layout remains in styles.css during Task 0A. */
+/* Mobile-only shell rules belong here. Shared legacy layout remains in styles.css during Task 1. */
 .bookreader-mobile { min-width: 0; }
+.bookreader-mobile .main-view { min-height: 100dvh; padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
+.mobile-bottom-nav { position: fixed; z-index: 60; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: calc(62px + env(safe-area-inset-bottom)); padding: 6px 12px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid #deded9; background: color-mix(in srgb, #f8f8f6 94%, transparent); backdrop-filter: blur(16px); }
+.mobile-bottom-nav button { min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; border-radius: 9px; background: transparent; color: #73767c; font-size: 11px; cursor: pointer; }
+.mobile-bottom-nav button.active { background: rgba(74, 79, 87, .08); color: #282b30; font-weight: 600; }
+:root[data-appearance="dark"] .mobile-bottom-nav { border-color: var(--app-line); background: color-mix(in srgb, #1f2022 94%, transparent); }
+:root[data-appearance="dark"] .mobile-bottom-nav button { color: var(--app-muted); }
+:root[data-appearance="dark"] .mobile-bottom-nav button.active { background: var(--app-selected); color: #f0f1f2; }
