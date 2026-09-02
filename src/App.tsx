@@ -24,6 +24,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, subscribeLibraryChanges, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
 import { DesktopAppShell } from "./desktop/DesktopAppShell";
+import { MobileLibraryView } from "./mobile/MobileLibraryView";
 import { MobileAppShell } from "./mobile/MobileAppShell";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
@@ -233,6 +234,8 @@ function App() {
     <LibrarySetup busy={busy} onSelect={selectLibrary} />
   ) : view === "notes" ? (
     <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={(book, cfi) => { setActiveBook(book); setReaderTargetCfi(cfi); setNotesBookId(book.id); setView("reader"); }} />
+  ) : uiMode === "mobile" ? (
+    <MobileLibraryView books={library.books} busy={busy} onImport={importBooks} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onRemoveLocal={(book) => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }} />
   ) : (
     <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
   );
