@@ -14,6 +14,7 @@ describe("Mobile Reader central tap", () => {
   });
   it("recognizes a short, still tap in the central reading area", () => expect(tap()).toBe(true));
   it("does not mistake a vertical scroll for a tap", () => expect(tap({ end: { x: 191, y: 430 } })).toBe(false));
+  it("rejects a click when earlier touchmove marked the gesture as moved", () => expect(tap({ moved: true })).toBe(false));
   it("does not react while native text selection exists", () => expect(tap({ hasSelection: true })).toBe(false));
   it("does not react to a link or other interactive EPUB target", () => expect(tap({ interactiveTarget: true })).toBe(false));
   it("keeps edge gestures and long presses out of the control trigger", () => {

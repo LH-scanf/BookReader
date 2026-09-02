@@ -517,30 +517,35 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("touchstart", () => recordPagingDiagnostic("content-start"), { passive: true });
             contents.document.addEventListener("touchend", () => recordPagingDiagnostic("content-end"), { passive: true });
             if (mobileReader) {
-              let mobileTapStart: { x: number; y: number; at: number } | null = null;
+              let mobileTap: { x: number; y: number; at: number; moved: boolean } | null = null;
               contents.document.addEventListener("touchstart", (event: TouchEvent) => {
-                if (event.touches.length !== 1) { mobileTapStart = null; return; }
+                if (event.touches.length !== 1) { mobileTap = null; return; }
                 const point = event.touches[0];
-                mobileTapStart = { x: point.clientX, y: point.clientY, at: performance.now() };
+                mobileTap = { x: point.clientX, y: point.clientY, at: performance.now(), moved: false };
               }, { passive: true });
-              contents.document.addEventListener("touchend", (event: TouchEvent) => {
-                const start = mobileTapStart;
-                mobileTapStart = null;
-                if (!start || event.changedTouches.length !== 1) return;
-                const end = event.changedTouches[0];
+              contents.document.addEventListener("touchmove", (event: TouchEvent) => {
+                const point = event.touches[0];
+                if (!mobileTap || !point) return;
+                if (Math.hypot(point.clientX - mobileTap.x, point.clientY - mobileTap.y) > 12) mobileTap.moved = true;
+              }, { passive: true });
+              contents.document.addEventListener("click", (event: MouseEvent) => {
+                const gesture = mobileTap;
+                mobileTap = null;
+                if (!gesture) return;
                 const target = event.target as Element | null;
                 const frame = contents.window.frameElement as HTMLElement | null;
                 const frameRect = frame?.getBoundingClientRect();
                 if (isMobileReaderCenterTap({
-                  start: frameRect ? mapIframePointToViewport(start, frameRect) : start,
-                  end: frameRect ? mapIframePointToViewport({ x: end.clientX, y: end.clientY }, frameRect) : { x: end.clientX, y: end.clientY },
-                  elapsedMs: performance.now() - start.at,
+                  start: frameRect ? mapIframePointToViewport({ x: gesture.x, y: gesture.y }, frameRect) : { x: gesture.x, y: gesture.y },
+                  end: frameRect ? mapIframePointToViewport({ x: event.clientX, y: event.clientY }, frameRect) : { x: event.clientX, y: event.clientY },
+                  elapsedMs: performance.now() - gesture.at,
                   viewport: { width: window.innerWidth, height: window.innerHeight },
+                  moved: gesture.moved,
                   hasSelection: Boolean(contents.window.getSelection()?.toString().trim()),
                   interactiveTarget: Boolean(target?.closest("a, button, input, textarea, select, [contenteditable='true']")),
                 })) toggleMobileControls();
-              }, { passive: true });
-              contents.document.addEventListener("touchcancel", () => { mobileTapStart = null; }, { passive: true });
+              });
+              contents.document.addEventListener("touchcancel", () => { mobileTap = null; }, { passive: true });
             }
             if (iosWeb && mobileReader) {
               let edgeSwipeStart: { x: number; y: number; at: number } | null = null;
