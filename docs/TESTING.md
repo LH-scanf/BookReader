@@ -14,6 +14,17 @@
 
 具体 Mobile V1 验收用例在各 Task 确定时逐步补充，不在此提前假设。
 
+## Task 0A：端侧 shell 选择与回归
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| UI-MODE-01 | Tauri 窗口缩窄至小于等于 720px | 始终使用 Desktop shell，不切换为 Mobile shell；原侧边栏行为保持。 |
+| UI-MODE-02 | 普通桌面浏览器打开应用 | 使用 Desktop shell。 |
+| UI-MODE-03 | iPhone、Android 或移动 Web/PWA 打开应用 | 使用 Mobile shell；Task 0A 仍显示现有侧边栏和页面，不引入新视觉。 |
+| UI-MODE-04 | 分别在 Desktop 与 Mobile shell 打开书库、笔记、设置 | 现有导航、书库、笔记、设置行为保持；一个端的修复不能破坏另一个端。 |
+
+`resolveUiMode` 的自动化回归覆盖 Tauri 窄窗口、Desktop Web 和 Mobile Web。`EpubReader.tsx` 不属于 Task 0A 的改动范围。
+
 ## PWA 新增用例
 
 | 编号 | 操作 | 预期与当前验证范围 |
@@ -36,6 +47,8 @@
 | WEB-16 | 原生 fetch 通过 GraphClient 发起请求/签名下载 | 接收者仍为全局对象，不出现 Illegal invocation；回归测试修复前失败、修复后通过，真实云端待确认 |
 | WEB-17 | Graph 返回 401/403 或非 JSON 错误 | 保留 HTTP 状态并显示安全诊断，暂停前台自动重试；不删除队列或泄露完整响应；自动化覆盖，真实 403 已观察 |
 | WEB-18 | 缓存授权缺少 AppFolder scope | 请求前提示重新检查委托权限/登录，不输出令牌；自动化覆盖 |
+
+> `WEB-03` 等旧 Mobile 分页类用例属于历史回归背景。如果它们与 [Mobile V1](MOBILE_V1.md) 冲突，以当前 Mobile V1 的“手机固定滚动”为准；旧用例不应驱动新的 Mobile UI。
 
 ## 书库与记录
 

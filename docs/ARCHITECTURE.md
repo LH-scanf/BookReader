@@ -13,17 +13,27 @@
 
 ## UI 当前状态与 Mobile V1 目标
 
-**现在实际状态：** Desktop / Mobile 仍有大量共享 UI / 响应式适配。
+**现在实际状态：** 顶层 App shell 已按端侧分离；Library、Notes、Settings 等页面内部仍有大量共享 legacy UI / 响应式适配。
 
 **目标状态：** 共享数据、阅读、同步能力；Desktop UI 与 Mobile UI 明确独立。
 
-这不是已完成的隔离。端侧 UI 隔离将从 [Mobile V1](MOBILE_V1.md) 的 Task 0 开始；在此之前，本文的模块表描述的是当前共享实现，而不是目标结构。
+Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile V1](MOBILE_V1.md) Task 会逐页把 Mobile UI 改为独立实现，同时保留共享数据、阅读和同步能力。
+
+### Task 0A 顶层边界
+
+- `src/App.tsx` 是共享应用控制层：书库状态、`activeBook`、视图、`notesBookId`、业务动作、书库变化订阅和共享外观状态仍在这里。
+- `src/ui/ui-mode.ts` 是唯一的 App-shell UI mode 判断入口。Tauri 优先返回 Desktop；移动 Web 设备返回 Mobile；普通桌面浏览器返回 Desktop，并仅为浏览器调试保留窄视口 fallback。
+- `src/desktop/DesktopAppShell.tsx` 与 `src/mobile/MobileAppShell.tsx` 只负责端侧根节点、侧边栏/backdrop、导航容器和 main-view 外壳。Task 0A 中两者刻意保留相同的现有结构和行为。
+- `src/desktop/desktop.css` 和 `src/mobile/mobile.css` 是后续专属端侧样式的唯一落点；`src/styles.css` 暂时仍是 shared/legacy 样式，不在本任务大规模迁移。
+- Library、Notes、Settings 页面与 `EpubReader.tsx` 仍是共享/既有实现；阅读器 UI 隔离不属于 Task 0A。
 
 ## 模块职责
 
 | 文件 | 职责 |
 | --- | --- |
 | `src/App.tsx` | 书库、设置、独立整书笔记页面；图书操作；监听 `library-changed` 刷新书库快照 |
+| `src/ui/ui-mode.ts` | 集中判断 Desktop / Mobile App shell 模式，并提供 React 包装 |
+| `src/desktop/`、`src/mobile/` | DesktopAppShell / MobileAppShell 与后续各端专属 CSS 边界 |
 | `src/EpubReader.tsx` | EPUB 渲染、翻页/滚动、目录、主题、脚注、搜索、高亮、进度保存及同步定位仲裁 |
 | `src/library-api.ts` | 平台无关入口，按环境加载 LibraryProvider |
 | `src/library/` | Provider 契约、桌面桥接、Web 书库与共享协议 |

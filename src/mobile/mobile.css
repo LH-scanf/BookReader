@@ -1,0 +1,2 @@
+/* Mobile-only shell rules belong here. Shared legacy layout remains in styles.css during Task 0A. */
+.bookreader-mobile { min-width: 0; }

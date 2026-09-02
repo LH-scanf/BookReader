@@ -7,11 +7,9 @@ import {
   Library,
   ImageIcon,
   Highlighter,
-  Menu,
   Moon,
   MoreHorizontal,
   NotebookPen,
-  PanelLeftClose,
   Pencil,
   Plus,
   Save,
@@ -25,7 +23,10 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, subscribeLibraryChanges, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
+import { DesktopAppShell } from "./desktop/DesktopAppShell";
+import { MobileAppShell } from "./mobile/MobileAppShell";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
+import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
 
 const CloudSettings = lazy(() => import("./CloudSettings"));
 const TrashSettings = lazy(() => import("./TrashSettings"));
@@ -36,7 +37,7 @@ type Appearance = "light" | "dark";
 function App() {
   const [appearance, setAppearance] = useState<Appearance>(() => document.documentElement.dataset.appearance === "dark" ? "dark" : "light");
   const [view, setView] = useState<View>("library");
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 720 && localStorage.getItem("sidebar-open") !== "false");
+  const [sidebarOpen, setSidebarOpen] = useState(() => getCurrentUiMode() === "desktop" && localStorage.getItem("sidebar-open") !== "false");
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [search, setSearch] = useState("");
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null);
@@ -46,6 +47,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const uiMode = useUiMode();
 
   useEffect(() => { if (view === "reader" && !activeBook) setView("library"); }, [view, activeBook]);
 
@@ -207,33 +209,23 @@ function App() {
   };
 
   if (view === "reader" && activeBook) {
-    return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} deviceId={library.deviceId ?? null} initialPreviewCfi={readerTargetCfi} onBack={() => { setReaderTargetCfi(null); setView("library"); }} onOpenNotes={() => { setReaderTargetCfi(null); setNotesBookId(activeBook.id); setView("notes"); }} onProgress={updateProgress} /></Suspense>;
+    return <div className={`bookreader-${uiMode}`} data-ui-mode={uiMode}><Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在启动阅读器…</div>}><EpubReader book={activeBook} deviceId={library.deviceId ?? null} initialPreviewCfi={readerTargetCfi} onBack={() => { setReaderTargetCfi(null); setView("library"); }} onOpenNotes={() => { setReaderTargetCfi(null); setNotesBookId(activeBook.id); setView("notes"); }} onProgress={updateProgress} /></Suspense></div>;
   }
 
-  return (
-    <div className={`app-shell ${sidebarOpen ? "sidebar-is-open" : "sidebar-is-closed"}`}>
-      {sidebarOpen && <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />}
-      <aside className="library-sidebar">
-        <div className="sidebar-heading">
-          <BookOpen size={20} />
-          {sidebarOpen && <span>BookReader</span>}
-          <button className="icon-button sidebar-collapse" aria-label="收起侧边栏" onClick={() => setSidebarOpen(false)}><PanelLeftClose size={18} /></button>
-        </div>
-        <nav className="sidebar-nav" aria-label="书库导航">
-          <button className={view === "library" && filter === "all" ? "active" : ""} onClick={() => { setView("library"); setFilter("all"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><Library size={18} /><span>我的书库</span></button>
-          <button className={view === "library" && filter === "finished" ? "active" : ""} onClick={() => { setView("library"); setFilter("finished"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><CheckCircle2 size={18} /><span>已读</span></button>
-          <button className={view === "notes" ? "active" : ""} onClick={() => { setView("notes"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><NotebookPen size={18} /><span>整书笔记</span></button>
-        </nav>
-        <div className="sidebar-footer">
-          <button className={view === "settings" ? "active" : ""} onClick={() => { setView("settings"); if (window.innerWidth <= 720) setSidebarOpen(false); }}><Settings size={18} /><span>设置</span></button>
-          {sidebarOpen && library.libraryDir && <div className="sidebar-sync"><span className="sync-dot" />{isDesktopApp() ? "书库目录已连接" : "本机离线书库"}</div>}
-        </div>
-      </aside>
+  const closeSidebarForMobile = () => { if (uiMode === "mobile") setSidebarOpen(false); };
+  const navigationItems = [
+    { label: "我的书库", icon: <Library size={18} />, active: view === "library" && filter === "all", onSelect: () => { setView("library"); setFilter("all"); closeSidebarForMobile(); } },
+    { label: "已读", icon: <CheckCircle2 size={18} />, active: view === "library" && filter === "finished", onSelect: () => { setView("library"); setFilter("finished"); closeSidebarForMobile(); } },
+    { label: "整书笔记", icon: <NotebookPen size={18} />, active: view === "notes", onSelect: () => { setView("notes"); closeSidebarForMobile(); } },
+  ];
+  const footerItem = { label: "设置", icon: <Settings size={18} />, active: view === "settings", onSelect: () => { setView("settings"); closeSidebarForMobile(); } };
+  const sidebarStatus = sidebarOpen && library.libraryDir && <div className="sidebar-sync"><span className="sync-dot" />{isDesktopApp() ? "书库目录已连接" : "本机离线书库"}</div>;
+  const shellMessage = message && <div className="app-message" role="status"><span>{message}</span><button aria-label="关闭提示" onClick={() => setMessage(null)}><X size={15} /></button></div>;
+  const AppShell = uiMode === "mobile" ? MobileAppShell : DesktopAppShell;
 
-      <main className="main-view">
-        {!sidebarOpen && <button className="icon-button sidebar-open-button" aria-label="展开侧边栏" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>}
-        {message && <div className="app-message" role="status"><span>{message}</span><button aria-label="关闭提示" onClick={() => setMessage(null)}><X size={15} /></button></div>}
-        {view === "settings" ? (
+  return (
+    <AppShell sidebarOpen={sidebarOpen} onCloseSidebar={() => setSidebarOpen(false)} onOpenSidebar={() => setSidebarOpen(true)} navigationItems={navigationItems} footerItem={footerItem} sidebarStatus={sidebarStatus} message={shellMessage}>
+      {view === "settings" ? (
           <SettingsView libraryDir={library.libraryDir} busy={busy} onSelectLibrary={selectLibrary} appearance={appearance} onAppearanceChange={setAppearance} />
         ) : loading ? (
           <div className="page-loading"><span className="loading-spinner" />正在读取书库…</div>
@@ -244,8 +236,7 @@ function App() {
         ) : (
           <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
         )}
-      </main>
-    </div>
+    </AppShell>
   );
 }
 

@@ -1,0 +1,2 @@
+/* Desktop-only shell rules belong here. Shared legacy layout remains in styles.css during Task 0A. */
+.bookreader-desktop { min-width: 0; }
