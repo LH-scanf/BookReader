@@ -75,7 +75,7 @@
   3. 保留真正更新的其他设备进度自动跳转；搜索/摘录预览期间不跳转。
   4. 翻页按钮、键盘、滚轮统一记录本地导航时间；接受更新远程位置前取消旧的待保存计时器。
 - **影响文件**：`src/EpubReader.tsx`、`src/App.tsx`、`src/types.ts`、`src-tauri/src/lib.rs`。
-- **回归用例**：READ-01～04、SYNC-01～07，见 [项目功能用例](feature-use-cases.md)。
+- **回归用例**：READ-01～04、SYNC-01～07，见 [项目功能用例](../TESTING.md)。
 - **已知边界**：跨设备时间比较依赖设备时钟；来源未知的旧记录仅用于打开时续读，不强制打断会话。
 - **验证**：2026-08-26，TypeScript/Vite 与 Rust release 编译通过；NSIS 安装包生成成功。首次打包遇到 exe 短暂占用的标记写入警告，重新执行 `tauri bundle --bundles nsis` 后成功且无该警告。沿用用户要求，未运行测试或启动程序，尚未进行交互验收。
 - **产物**：`src-tauri/target/release/bookreader.exe`、`src-tauri/target/release/bundle/nsis/BookReader_0.2.3_x64-setup.exe`；未推送、未发布。

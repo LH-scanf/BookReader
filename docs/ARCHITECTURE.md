@@ -1,15 +1,23 @@
 # BookReader 项目地图
 
-更新：2026-08-26 · 当前开发版本：0.3.0-alpha.1 · 桌面基线：v0.2.4
+当前基线：[`pre-mobile-v1` / `01a0c13`](CURRENT_STATE.md) · 当前阶段：Mobile V1
 
 ## 文档入口
 
-- [开发计划与历史](DEVELOPMENT.md)：需求、版本阶段与交付说明。
-- [项目功能用例](feature-use-cases.md)：使用路径、预期结果与验收清单。
-- [Bug 修复时间线](bugfix-timeline.md)：现象、根因、改动位置、验证状态。
-- [PWA 首版需求与基线](PWA-PLAN.md)：已确认范围、软删除约定、架构方案与后续开发顺序。
-- [PWA 开发记录](PWA-DEVELOPMENT.md)：实际实现、同步协议、验证结果与限制。
-- [PWA 部署与验收](PWA-DEPLOYMENT.md)：微软应用配置、Cloudflare Pages 和 iPhone 验收步骤。
+- [当前状态](CURRENT_STATE.md)：当前基线、平台、阶段与下一步。
+- [数据与同步](DATA_SYNC.md)：当前数据承重墙与同步规则。
+- [Mobile V1](MOBILE_V1.md)：产品目标和端侧隔离路线图。
+- [测试](TESTING.md)：当前验收用例与回归原则。
+- [部署](DEPLOYMENT.md)：当前 Microsoft、Cloudflare Pages 与 PWA 部署流程。
+- [历史记录](history/README.md)：旧计划、开发日志、时间线和诊断证据。
+
+## UI 当前状态与 Mobile V1 目标
+
+**现在实际状态：** Desktop / Mobile 仍有大量共享 UI / 响应式适配。
+
+**目标状态：** 共享数据、阅读、同步能力；Desktop UI 与 Mobile UI 明确独立。
+
+这不是已完成的隔离。端侧 UI 隔离将从 [Mobile V1](MOBILE_V1.md) 的 Task 0 开始；在此之前，本文的模块表描述的是当前共享实现，而不是目标结构。
 
 ## 模块职责
 
