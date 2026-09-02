@@ -39,8 +39,16 @@
 .mobile-cover-sand { background: #987f56; }
 .mobile-book-progress { position: absolute; right: 6px; bottom: 6px; left: 6px; height: 2px; border-radius: 99px; background: rgba(255, 255, 255, .46); }
 .mobile-book-progress span { background: #f4f5ef; }
-.mobile-book-action-menu { top: 34px; right: 0; z-index: 44; min-width: 156px; }
 .mobile-book-card h3 { display: -webkit-box; min-height: 2.8em; margin: 8px 1px 0; overflow: hidden; color: #33363b; font-size: 12px; font-weight: 550; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.mobile-book-action-sheet-layer { position: fixed; z-index: 80; inset: 0; }
+.mobile-book-action-sheet-backdrop { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: rgba(17, 19, 22, .32); }
+.mobile-book-action-sheet { position: absolute; right: 0; bottom: 0; left: 0; display: grid; gap: 1px; padding: 9px 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; background: #f8f8f6; box-shadow: 0 -8px 28px rgba(18, 20, 24, .18); }
+.mobile-book-action-sheet-title { padding: 5px 8px 10px; overflow: hidden; color: #6e7278; font-size: 13px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-book-action-sheet button { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 10px; background: transparent; color: #2d3137; font: inherit; font-size: 16px; cursor: pointer; }
+.mobile-book-action-sheet button:disabled { color: #a3a5a9; cursor: default; }
+.mobile-book-action-sheet button.destructive { color: #be3e3e; }
+.mobile-book-action-sheet button.destructive:disabled { color: #d7a1a1; }
+.mobile-book-action-sheet .mobile-book-action-sheet-cancel { margin-top: 7px; background: #e9e9e5; font-weight: 600; }
 .mobile-library-empty { padding: 58px 12px; color: #74787e; text-align: center; }
 .mobile-library-empty h3 { margin: 12px 0 5px; color: #3a3d42; font-size: 16px; }
 .mobile-library-empty p { margin-bottom: 15px; font-size: 13px; line-height: 1.6; }
@@ -51,3 +59,8 @@
 :root[data-appearance="dark"] .mobile-continue-copy small, :root[data-appearance="dark"] .mobile-library-empty { color: var(--app-muted); }
 :root[data-appearance="dark"] .mobile-continue-progress { background: var(--app-line); }
 :root[data-appearance="dark"] .mobile-library-empty button { border-color: var(--app-line); background: var(--app-surface-raised); color: #e1e2e4; }
+:root[data-appearance="dark"] .mobile-book-action-sheet { background: #27282b; }
+:root[data-appearance="dark"] .mobile-book-action-sheet-title { color: var(--app-muted); }
+:root[data-appearance="dark"] .mobile-book-action-sheet button { color: #e4e5e7; }
+:root[data-appearance="dark"] .mobile-book-action-sheet button:disabled { color: #767a80; }
+:root[data-appearance="dark"] .mobile-book-action-sheet .mobile-book-action-sheet-cancel { background: #36383c; }
