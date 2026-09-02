@@ -4,8 +4,10 @@ import { database, getSetting } from "./storage/database";
 import { subscribeLibraryChanges } from "./platform";
 import { syncNow, subscribeSync, syncSnapshot } from "./sync/engine";
 import { EXPERIMENT_PAUSE } from "./sync/experimentGate";
+import { useUiMode } from "./ui/ui-mode";
 
 export default function WebStatus() {
+  const uiMode = useUiMode();
   const status = useSyncExternalStore(subscribeSync, syncSnapshot);
   const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
@@ -48,10 +50,11 @@ export default function WebStatus() {
     setError("");
     try { if (!account) await signIn(); else await syncNow(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
+  const noticeClassName = uiMode === "mobile" ? "web-notice web-notice-mobile" : "web-notice";
   return <>
-    <div className="web-status" role="status"><span>{experimentPaused ? "权限诊断实验中 · 正常同步已锁定" : !online ? "离线 · 本机保存" : pending ? `本机已保存 · ${pending} 项待同步` : status.message}</span>
-      <button disabled={experimentPaused || !online || !authConfigured() || status.phase === "syncing"} onClick={() => void run()}>{account ? "同步" : "登录"}</button></div>
-    {!experimentPaused && (error || status.phase === "error") && <div className="web-notice" role="alert"><span>{error || status.message}</span><button onClick={() => { setError(""); void run(); }}>重试</button></div>}
-    {offlineReady && <div className="web-notice"><span>应用已可离线启动；图书仍需先下载。</span><button onClick={() => setOfflineReady(false)}>知道了</button></div>}
+    {uiMode === "desktop" && <div className="web-status" role="status"><span>{experimentPaused ? "权限诊断实验中 · 正常同步已锁定" : !online ? "离线 · 本机保存" : pending ? `本机已保存 · ${pending} 项待同步` : status.message}</span>
+      <button disabled={experimentPaused || !online || !authConfigured() || status.phase === "syncing"} onClick={() => void run()}>{account ? "同步" : "登录"}</button></div>}
+    {!experimentPaused && (error || status.phase === "error") && <div className={noticeClassName} role="alert"><span>{error || status.message}</span><button onClick={() => { setError(""); void run(); }}>重试</button></div>}
+    {offlineReady && <div className={noticeClassName}><span>应用已可离线启动；图书仍需先下载。</span><button onClick={() => setOfflineReady(false)}>知道了</button></div>}
   </>;
 }
