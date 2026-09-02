@@ -61,6 +61,17 @@
 
 最近打开时间仅保存在当前设备的 `bookreader-mobile-recent-open-v1`，不写入 BookReaderLibrary 或同步协议。Desktop 书库排序和 Continue Reading 保持原有行为。
 
+## Task 3A：Mobile Reader 沉浸式外壳
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-READER-01 | 在 Mobile Reader 打开图书 | 默认仅显示正文和轻量右下角进度；无常驻 toolbar、眼睛按钮或左右翻页按钮。 |
+| MOBILE-READER-02 | 轻点正文中央，再轻点一次 | 显示/隐藏 `返回 / 更多 / 目录 / Aa / 笔记`；控制栏是 fixed overlay，正文不重排、不跳位。 |
+| MOBILE-READER-03 | 滚动、长按选字、点击链接/脚注或交互元素 | 不误呼出或隐藏控制栏；原阅读、选择、链接和脚注行为优先。 |
+| MOBILE-READER-04 | 打开更多 | 仅有书内搜索和只读图书信息；目录、Aa、笔记仍在底部入口。 |
+| MOBILE-READER-05 | 点击 Mobile 底部目录、Aa、笔记 | 暂时分别复用现有目录、阅读设置和完整笔记页入口；Mobile 保持固定上下滚动。 |
+| MOBILE-READER-06 | 在 Desktop Reader 打开图书 | 原顶部工具栏、面板、分页/滚动、左右翻页区与快捷键保持不变。 |
+
 ## PWA 新增用例
 
 | 编号 | 操作 | 预期与当前验证范围 |

@@ -5,7 +5,10 @@ import {
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
+import { isMobileReaderCenterTap } from "./reader/mobile-reader-ui";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
+import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
+import { getCurrentUiMode } from "./ui/ui-mode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, removeAnnotation, saveAnnotation } from "./library-api";
 import type {
@@ -78,6 +81,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const highlightReflowTimerRef = useRef<number | null>(null);
   const pagingDiagnosticEnabledRef = useRef(false);
   const mobileWeb = !isDesktopApp() && isMobileWebDevice();
+  const mobileReader = getCurrentUiMode() === "mobile";
   const iosWeb = mobileWeb && isIOSWebDevice();
   // Production-only diagnostic switch. It is intentionally opt-in and does
   // not change the normal reader's safe sandbox setting.
@@ -114,6 +118,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [searching, setSearching] = useState(false);
   const [readerMessage, setReaderMessage] = useState<string | null>(null);
   const [toolbarHidden, setToolbarHidden] = useState(false);
+  const [mobileControlsVisible, setMobileControlsVisible] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
@@ -235,6 +242,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const closePanels = useCallback(() => {
     setTocOpen(false); setSettingsOpen(false); setSearchOpen(false);
     setFootnote(null); setSelectionDraft(null);
+  }, []);
+  const toggleMobileControls = useCallback(() => {
+    setMobileControlsVisible((visible) => !visible);
+    setMobileMoreOpen(false);
+    setMobileInfoOpen(false);
   }, []);
 
   const showSelectionToolbar = useCallback((contents: EpubContents, cfiRange?: string) => {
@@ -520,6 +532,28 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("wheel", onWheel, { passive: false });
             contents.document.addEventListener("touchstart", () => recordPagingDiagnostic("content-start"), { passive: true });
             contents.document.addEventListener("touchend", () => recordPagingDiagnostic("content-end"), { passive: true });
+            if (mobileReader) {
+              let mobileTapStart: { x: number; y: number; at: number } | null = null;
+              contents.document.addEventListener("touchstart", (event: TouchEvent) => {
+                if (event.touches.length !== 1) { mobileTapStart = null; return; }
+                const point = event.touches[0];
+                mobileTapStart = { x: point.clientX, y: point.clientY, at: performance.now() };
+              }, { passive: true });
+              contents.document.addEventListener("touchend", (event: TouchEvent) => {
+                const start = mobileTapStart;
+                mobileTapStart = null;
+                if (!start || event.changedTouches.length !== 1) return;
+                const end = event.changedTouches[0];
+                const target = event.target as Element | null;
+                if (isMobileReaderCenterTap({
+                  start, end: { x: end.clientX, y: end.clientY }, elapsedMs: performance.now() - start.at,
+                  viewport: { width: contents.window.innerWidth || window.innerWidth, height: contents.window.innerHeight || window.innerHeight },
+                  hasSelection: Boolean(contents.window.getSelection()?.toString().trim()),
+                  interactiveTarget: Boolean(target?.closest("a, button, input, textarea, select, [contenteditable='true']")),
+                })) toggleMobileControls();
+              }, { passive: true });
+              contents.document.addEventListener("touchcancel", () => { mobileTapStart = null; }, { passive: true });
+            }
             if (useIosPseudoPagination) {
               // The WebKit iframe does not reliably forward TouchEvents through
               // Rendition. Bind inside the current EPUB document instead; no
@@ -658,7 +692,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, turnPage]);
+  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, mobileReader, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, toggleMobileControls, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
@@ -804,14 +838,16 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const closeOtherPanels = () => { setTocOpen(false); setSettingsOpen(false); setSearchOpen(false); };
 
   return (
-    <div className={`reader reader-${readerTheme} mode-${readingMode}${iosWeb ? " reader-ios" : ""}${toolbarHidden ? " reader-toolbar-hidden" : ""}`} onClick={() => setFootnote(null)}>
-      <header className="reader-toolbar">
+    <div className={`reader reader-${readerTheme} mode-${readingMode}${iosWeb ? " reader-ios" : ""}${mobileReader ? " reader-mobile" : ""}${!mobileReader && toolbarHidden ? " reader-toolbar-hidden" : ""}`} onClick={() => setFootnote(null)}>
+      {!mobileReader && <header className="reader-toolbar">
         <div className="reader-toolbar-side"><button className="toolbar-button" onClick={() => void leaveReader()} aria-label="返回书库"><ArrowLeft size={18} /><span className="back-label">返回书库</span></button><button className={`toolbar-button icon-only ${tocOpen ? "selected" : ""}`} aria-label="打开章节目录" onClick={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }}><Menu size={19} /></button></div>
         <div className="reader-title"><strong title={book.title}>{book.title}</strong><span>{chapter}</span></div>
         <div className="reader-toolbar-side toolbar-right"><button className={`toolbar-button icon-only ${searchOpen ? "selected" : ""}`} aria-label="书内搜索" title="书内搜索 Ctrl+F" onClick={() => { const next = !searchOpen; closeOtherPanels(); setSearchOpen(next); }}><Search size={18} /></button><button className="toolbar-button icon-only" aria-label="打开整书笔记页面" title="整书笔记 N" onClick={() => void openNotesWorkspace()}><NotebookPen size={18} /></button><button className={`toolbar-button icon-only ${settingsOpen ? "selected" : ""}`} aria-label="阅读设置" onClick={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }}><SlidersHorizontal size={19} /></button><button className="toolbar-button icon-only hide-reader-toolbar" aria-label="隐藏顶部栏" title="隐藏顶部栏" onClick={() => { closeOtherPanels(); setToolbarHidden(true); }}><EyeOff size={18} /></button></div>
-      </header>
+      </header>}
 
-      {toolbarHidden && <div className="reader-toolbar-reveal"><button className="show-reader-toolbar" aria-label="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /><span>显示顶部栏</span></button></div>}
+      {!mobileReader && toolbarHidden && <div className="reader-toolbar-reveal"><button className="show-reader-toolbar" aria-label="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /><span>显示顶部栏</span></button></div>}
+
+      {mobileReader && <MobileReaderChrome visible={mobileControlsVisible} moreOpen={mobileMoreOpen} infoOpen={mobileInfoOpen} title={book.title} author={book.author} chapter={chapter} onBack={() => void leaveReader()} onToggleMore={() => { setMobileMoreOpen((open) => !open); setMobileInfoOpen(false); }} onOpenSearch={() => { closeOtherPanels(); setSearchOpen(true); setMobileMoreOpen(false); }} onOpenInfo={() => { setMobileMoreOpen(false); setMobileInfoOpen(true); }} onCloseInfo={() => setMobileInfoOpen(false)} onOpenToc={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }} onOpenSettings={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }} onOpenNotes={() => void openNotesWorkspace()} />}
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}

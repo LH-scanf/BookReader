@@ -25,7 +25,7 @@ Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile
 - `src/ui/ui-mode.ts` 是唯一的 App-shell UI mode 判断入口。Tauri 优先返回 Desktop；移动 Web 设备返回 Mobile；普通桌面浏览器返回 Desktop，并仅为浏览器调试保留窄视口 fallback。
 - `src/desktop/DesktopAppShell.tsx` 与 `src/mobile/MobileAppShell.tsx` 只负责端侧根节点、侧边栏/backdrop、导航容器和 main-view 外壳。Task 0A 中两者刻意保留相同的现有结构和行为。
 - `src/desktop/desktop.css` 和 `src/mobile/mobile.css` 是后续专属端侧样式的唯一落点；`src/styles.css` 暂时仍是 shared/legacy 样式，不在本任务大规模迁移。
-- Library、Notes、Settings 页面与 `EpubReader.tsx` 仍是共享/既有实现；阅读器 UI 隔离不属于 Task 0A。
+- Library、Notes、Settings 页面内部仍是共享/既有实现。`EpubReader.tsx` 的渲染内核仍共享；Task 3A 已将 Mobile Reader 控制外壳分到 `MobileReaderChrome`，Desktop 工具栏保持既有实现。
 
 ## 模块职责
 
@@ -35,6 +35,7 @@ Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile
 | `src/ui/ui-mode.ts` | 集中判断 Desktop / Mobile App shell 模式，并提供 React 包装 |
 | `src/desktop/`、`src/mobile/` | DesktopAppShell / MobileAppShell 与后续各端专属 CSS 边界 |
 | `src/mobile/mobile-recent-books.ts` | Mobile 最近打开顺序的本机 UI 状态；不写入同步书库。 |
+| `src/reader/ui/MobileReaderChrome.tsx` | Mobile Reader 的 overlay 控制外壳；继续复用 `EpubReader` 的渲染、CFI 和状态能力。 |
 | `src/EpubReader.tsx` | EPUB 渲染、翻页/滚动、目录、主题、脚注、搜索、高亮、进度保存及同步定位仲裁 |
 | `src/library-api.ts` | 平台无关入口，按环境加载 LibraryProvider |
 | `src/library/` | Provider 契约、桌面桥接、Web 书库与共享协议 |
