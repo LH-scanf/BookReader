@@ -1,5 +1,5 @@
-import { BookMarked, BookOpen, CheckCircle2, MoreHorizontal, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { BookMarked, BookOpen, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BookRecord } from "../types";
 
 type MobileLibraryViewProps = {
@@ -53,8 +53,28 @@ export function MobileLibraryView({ books, busy, onImport, onOpenBook, onSetFini
 
 function MobileBookCard({ book, menuOpen, onToggleMenu, onOpen, onSetFinished, onDelete, onRemoveLocal }: { book: BookRecord; menuOpen: boolean; onToggleMenu: () => void; onOpen: () => void; onSetFinished: () => void; onDelete: () => void; onRemoveLocal: () => void }) {
   const progress = Math.round(book.progress * 100);
-  return <article className="mobile-book-card" onClick={onOpen} tabIndex={0} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
-    <div className="mobile-book-cover-wrap"><MobileBookCover book={book} className="mobile-book-cover" />{progress > 0 && <span className="mobile-book-progress"><span style={{ width: `${progress}%` }} /></span>}<button className="mobile-book-menu" aria-label={`${book.title}的更多操作`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); onToggleMenu(); }}><MoreHorizontal size={17} /></button>{menuOpen && <div className="context-menu mobile-book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button><button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button>{book.cached && <button onClick={onRemoveLocal}>移除本机下载</button>}<div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+  const startLongPress = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== "touch") return;
+    clearLongPress();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressTriggeredRef.current = true;
+      if (!menuOpen) onToggleMenu();
+    }, 500);
+  };
+  const finishLongPress = () => {
+    clearLongPress();
+    if (longPressTriggeredRef.current) window.setTimeout(() => { longPressTriggeredRef.current = false; }, 0);
+  };
+
+  return <article className="mobile-book-card" onClick={(event) => { if (longPressTriggeredRef.current) { event.preventDefault(); event.stopPropagation(); longPressTriggeredRef.current = false; return; } onOpen(); }} onPointerDown={startLongPress} onPointerMove={clearLongPress} onPointerLeave={clearLongPress} onPointerUp={finishLongPress} onPointerCancel={clearLongPress} onContextMenu={(event) => { event.preventDefault(); if (!menuOpen) onToggleMenu(); }} tabIndex={0} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) onOpen(); }}>
+    <div className="mobile-book-cover-wrap"><MobileBookCover book={book} className="mobile-book-cover" />{progress > 0 && <span className="mobile-book-progress"><span style={{ width: `${progress}%` }} /></span>}{menuOpen && <div className="context-menu mobile-book-action-menu" role="menu" onClick={(event) => event.stopPropagation()}><button onClick={onOpen}><BookOpen size={16} />打开图书</button><button onClick={onSetFinished}><CheckCircle2 size={16} />{book.finished ? "标记为未读" : "标记为已读"}</button>{book.cached && <button onClick={onRemoveLocal}>移除本机下载</button>}<div className="menu-separator" /><button className="destructive" onClick={onDelete}><Trash2 size={16} />从书库删除</button></div>}</div>
     <h3>{book.title}</h3>
   </article>;
 }
