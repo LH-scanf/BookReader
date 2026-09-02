@@ -2,6 +2,14 @@
 
 状态约定：**已定位** → **已修改** → **构建通过** → **用户验收通过**。未经验收，不写“彻底解决”。
 
+## FEATURE-20260828-01 · 整书笔记 Master-Detail 重设计（v0.3.0-alpha.1）
+
+- **目标**：将“多张原文＋textarea 卡片连续堆叠”改为个人阅读笔记本式的左侧摘要列表与右侧单条详情。
+- **实现**：顶部紧凑图书选择器；当前书摘要列表及最新/最早排序；单条原文/感悟/元数据详情；独立整书总结详情；Windows 与 iOS 响应式共享布局。
+- **复用**：未调整 `BookNote`、`AnnotationRecord`、CFI、保存、删除、图书选择、草稿和刷新仲裁逻辑；同步文件树与 Graph/OneDrive 协议不变。
+- **影响文件**：`src/App.tsx`、`src/styles.css` 及项目文档。用例：NOTE-07～16。
+- **检查**：2026-08-28，`npm run build`、`npm run build:desktop` 与 Windows NSIS 打包通过；未启动应用或执行视觉/真机验收，未推送或发布。
+
 ## BUG-20260826-06 · 登录后 Graph 请求出现 Illegal invocation
 
 - **复现**：真实个人微软账号登录回跳后，点击同步，浏览器显示 `Failed to execute 'fetch' on 'Window': Illegal invocation`。

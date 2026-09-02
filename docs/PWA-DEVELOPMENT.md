@@ -354,3 +354,12 @@
 - 真机诊断显示“下一页测试”会发出翻页请求，但 `relocated` 保持 0，页面被推进到空白区域；说明手势之前不是唯一问题，epub.js `DefaultViewManager` 的横向 stage 无法在 iOS 的 `overflow: hidden` 下可靠推进。
 - 分页 render 的 stage 改为 `overflow: scroll`，并通过 CSS 只允许 `overflow-x`、禁止 `overflow-y`、隐藏滚动条、启用 iOS 横向惯性滚动。DefaultViewManager 的 `next/prev` 与用户横滑现在共用同一个 `scrollLeft` 通道；不重新启用 `touchmove.preventDefault()`。
 - 本轮 `npm test`（69 项）、`npm run build` 与 `npm run build:desktop` 均通过，仍需真机验证下一页测试和中心区域横滑实际触发 `relocated`。
+
+## 2026-08-28 · 整书笔记 Windows/iOS 共享布局重设计
+
+- 按参考图的阅读感保留 BookReader 既有主导航，不实现额外的标签、智能筛选或统计列。整书笔记内容区改为顶部图书工具栏、左侧当前书摘录摘要、右侧单条详情的 Master-Detail 结构。
+- 完整图书列表从常驻左栏移入顶部弹出式选择器；当前图书、封面、作者、摘录数、打开图书和独立整书总结入口保持在顶部，减少长期占用空间。
+- 右侧详情复用现有 `AnnotationRecord`：原文使用较大衬线字体，感悟沿用 `saveAnnotation`，元数据读取既有章节/CFI/时间，回到原文继续调用原 CFI 定位，删除继续使用原 tombstone 与同步队列。
+- 整书总结复用 `BookNote` 与 `persistBookNote`；桌面端可编辑，Web/iOS 仍只读。普通摘录感悟维持现有 Web provider 写入和同步能力。
+- 小于720px时左右栏纵向排列，图书选择器限制在安全视口内；没有新增或迁移 `books`、`notes`、`annotations`、`progress`、`lifecycle` 文件，也未改变 Graph AppFolder 结构。
+- `npm run build`（Safari 17/PWA）、`npm run build:desktop`（Chrome 105/Tauri 前端）与 Windows NSIS 打包通过。未运行浏览器视觉自动化或 iPhone 真机测试；布局、键盘弹出、滚动和安全区仍需真机验收。

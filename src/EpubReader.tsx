@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
-import { isIOSWebDevice, readerProgressLabel, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
+import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, removeAnnotation, saveAnnotation } from "./library-api";
 import type {
@@ -71,12 +71,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const previewingRef = useRef(false);
   const returnCfiRef = useRef<string | null>(null);
   const annotationsRef = useRef<AnnotationRecord[]>([]);
+  const lastCreatedHighlightIdRef = useRef<string | null>(null);
   const appliedHighlightCfisRef = useRef<string[]>([]);
   const chapterRef = useRef("正在载入");
   const chapterHrefRef = useRef(book.chapterHref ?? "");
   const highlightReflowTimerRef = useRef<number | null>(null);
   const pagingDiagnosticEnabledRef = useRef(false);
-  const iosWeb = !isDesktopApp() && isIOSWebDevice();
+  const mobileWeb = !isDesktopApp() && isMobileWebDevice();
+  const iosWeb = mobileWeb && isIOSWebDevice();
   // Production-only diagnostic switch. It is intentionally opt-in and does
   // not change the normal reader's safe sandbox setting.
   const iframeDiagnosticValue = new URLSearchParams(window.location.search).get("epubIframeDiagnostic");
@@ -86,8 +88,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [readingMode, setReadingMode] = useState<ReadingMode>(() => localStorage.getItem("reader-mode") === "scroll" ? "scroll" : "paged");
-  const useIosPseudoPagination = iosWeb && readingMode === "paged";
+  // Mobile readers deliberately use one vertical scrolling path. Keeping the
+  // desktop-only paginated path out of the PWA avoids a second, fragile touch
+  // navigation implementation and preserves native text selection.
+  const [readingMode, setReadingMode] = useState<ReadingMode>(() => mobileWeb || localStorage.getItem("reader-mode") === "scroll" ? "scroll" : "paged");
+  const useIosPseudoPagination = false;
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
     const value = localStorage.getItem("reader-theme");
     return value === "light" || value === "dark" ? value : "paper";
@@ -109,8 +114,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [searching, setSearching] = useState(false);
   const [readerMessage, setReaderMessage] = useState<string | null>(null);
   const [toolbarHidden, setToolbarHidden] = useState(false);
-  const [showPageNumbers, setShowPageNumbers] = useState(false);
-  const [pagePosition, setPagePosition] = useState<{ current: number; total: number } | null>(null);
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
@@ -328,11 +331,30 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       .catch((reason: unknown) => setReaderMessage(String(reason)));
   }, [capturePagedFrameMetrics, capturePagingScroll, useIosPseudoPagination]);
 
+  const undoLatestHighlight = useCallback(async () => {
+    const annotationId = lastCreatedHighlightIdRef.current;
+    if (!annotationId) return;
+    // Ctrl+Z only reverses a new highlight made during this reader session;
+    // it never removes an older synced note by accident.
+    lastCreatedHighlightIdRef.current = null;
+    try {
+      await removeAnnotation(book.id, annotationId);
+      setAnnotations((current) => current.filter((item) => item.id !== annotationId));
+      setReaderMessage("已撤销刚刚的高亮");
+    } catch (reason) {
+      lastCreatedHighlightIdRef.current = annotationId;
+      setReaderMessage(`撤销高亮失败：${String(reason)}`);
+    }
+  }, [book.id]);
+
   const handleKey = useCallback((event: KeyboardEvent) => {
     if (isEditing(event.target)) return;
     const rendition = renditionRef.current;
     if (!rendition) return;
     if (event.key === "Escape") { closePanels(); setReflectionDraft(null); return; }
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "z") {
+      event.preventDefault(); void undoLatestHighlight(); return;
+    }
     if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "f") {
       event.preventDefault(); closePanels(); setSearchOpen(true); return;
     }
@@ -383,7 +405,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         event.preventDefault(); activeScroller?.scrollTo({ top: activeScroller.scrollHeight, behavior: "smooth" });
       }
     }
-  }, [closePanels, openNotesWorkspace, readingMode, turnPage]);
+  }, [closePanels, openNotesWorkspace, readingMode, turnPage, undoLatestHighlight]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKey);
@@ -598,9 +620,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           const calculated = location.start.percentage ?? epubBook.locations.percentageFromCfi(cfi) ?? 0;
           const next = Math.min(1, Math.max(0, calculated));
           setPercentage(next);
-          const total = epubBook.locations.length();
-          const locationIndex = location.start.location ?? epubBook.locations.locationFromCfi(cfi);
-          setPagePosition(total > 0 && Number.isFinite(locationIndex) ? { current: Math.min(total, Math.max(1, Number(locationIndex) + 1)), total } : null);
           const item = flattenToc(navigation.toc ?? []).find((entry) => href.includes(entry.href.split("#")[0]));
           const label = item?.label?.trim() || href || "正文";
           chapterRef.current = label; chapterHrefRef.current = href; setChapter(label);
@@ -692,6 +711,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     return () => { if (highlightReflowTimerRef.current) window.clearTimeout(highlightReflowTimerRef.current); };
   }, [fontSize]);
   useEffect(() => { localStorage.setItem("reader-mode", readingMode); }, [readingMode]);
+  useEffect(() => {
+    if (mobileWeb && readingMode !== "scroll") setReadingMode("scroll");
+  }, [mobileWeb, readingMode]);
 
   const goTo = async (href: string, label: string) => {
     localNavigationAtRef.current = Date.now();
@@ -715,9 +737,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     try {
       const record = await saveAnnotation({ id: draft.annotationId, bookId: book.id, quote: draft.quote, reflection, chapterTitle: draft.chapterTitle, chapterHref: draft.chapterHref, cfiRange: draft.cfiRange });
       setAnnotations((current) => [...current.filter((item) => item.id !== record.id), record]);
+      if (!draft.annotationId) lastCreatedHighlightIdRef.current = record.id;
       setSelectionDraft(null);
       clearReaderSelection(renditionRef.current);
-      setReaderMessage(reflection ? "高亮和感悟已保存" : "已高亮，可在整书笔记中补充感悟");
+      if (reflection) setReaderMessage("高亮和感悟已保存");
     } catch (reason) { setReaderMessage(String(reason)); }
   };
   const saveReflection = async () => {
@@ -798,14 +821,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {searchOpen && <aside className="reader-panel search-panel"><PanelHeading title="书内搜索" subtitle="跳转结果不会覆盖阅读进度" onClose={() => setSearchOpen(false)} /><form className="reader-search-form" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="输入关键词" /><button disabled={searching || !searchQuery.trim()}>{searching ? "搜索中" : "搜索"}</button></form><div className="search-results">{!searching && searchQuery && <small>找到 {searchResults.length} 处结果</small>}{searchResults.map((result) => <button key={result.id} onClick={() => void beginPreview(result.cfi)}><span>{result.excerpt}</span><small>{result.chapterTitle}</small></button>)}</div></aside>}
 
-      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label><div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div></div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div><div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingLayout(null); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 识别 {pagingDiagnosticEvents.recognized ?? 0} · 翻页请求 {(pagingDiagnosticEvents["next-requested"] ?? 0) + (pagingDiagnosticEvents["prev-requested"] ?? 0)} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}{pagingLayout && <> · 列 {pagingLayout.contentWidth}/{pagingLayout.frameWidth}px（页宽 {pagingLayout.pageWidth}px）</>}</small>}</div><div className="shortcut-help"><strong>快捷键</strong><span>分页：← → / PageUp PageDown 翻页</span><span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
+      {settingsOpen && <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label>{mobileWeb ? <small>手机端固定为上下滚动</small> : <div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div>}</div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min="15" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div>{!mobileWeb && <div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingLayout(null); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}{pagingLayout && <> · 列 {pagingLayout.contentWidth}/{pagingLayout.frameWidth}px（页宽 {pagingLayout.pageWidth}px）</>}</small>}</div>}<div className="shortcut-help"><strong>快捷键</strong>{!mobileWeb && <span>分页：← → / PageUp PageDown 翻页</span>}<span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+Z 撤销刚刚的高亮 · Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>}
 
-      <main className="reading-stage">{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !iosWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
+      <main className="reading-stage">{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
       {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft, selectionDraft.reflection ?? "")}><Highlighter size={15} />高亮标记</button><button onClick={() => setReflectionDraft({ id: selectionDraft.annotationId, quote: selectionDraft.quote, reflection: selectionDraft.reflection ?? "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />{selectionDraft.annotationId ? "编辑笔记" : "添加笔记"}</button>{selectionDraft.annotationId && <button className="destructive-text" onClick={() => void deleteSelectionNote(selectionDraft)}><Trash2 size={15} />删除笔记</button>}<button aria-label="取消" onClick={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }}><X size={14} /></button></div>}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
       {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog">{iosWeb && <div className="mobile-note-header"><button onClick={() => setReflectionDraft(null)}>取消</button><strong>笔记</strong><button className="save-reflection" onClick={() => void saveReflection()}>完成</button></div>}<div><span>所选原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>笔记<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="添加笔记……" /></label>{!iosWeb && <div className="reflection-actions"><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div>}</div></div>}
-      <footer className="reader-footer"><button className="reader-progress-toggle" aria-label="切换百分比和页码进度" onClick={() => setShowPageNumbers((value) => !value)}>{readerProgressLabel(percentage, showPageNumbers, pagePosition)}</button></footer>
+      <footer className="reader-footer"><span className="reader-progress-toggle" aria-label="阅读进度">{Math.round(percentage * 100)}%</span></footer>
     </div>
   );
 }

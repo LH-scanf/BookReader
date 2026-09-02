@@ -2,6 +2,7 @@ import {
   BookMarked,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Library,
   ImageIcon,
@@ -383,6 +384,22 @@ function BookCard({ book, menuOpen, onToggleMenu, onOpen, onRename, onChangeCove
   );
 }
 
+function formatNoteDate(value: string, compact = false) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  if (compact) {
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  }
+  return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function compactCfi(value: string) {
+  if (value.length <= 58) return value;
+  return `${value.slice(0, 28)}…${value.slice(-24)}`;
+}
+
 function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpenQuote }: {
   books: BookRecord[];
   selectedBookId: string | null;
@@ -399,11 +416,21 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
   const [reflectionDrafts, setReflectionDrafts] = useState<Record<string, string>>({});
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+  const [sortNewestFirst, setSortNewestFirst] = useState(true);
+  const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const refreshRequestRef = useRef(0);
   const selectionVersionRef = useRef(0);
   const summaryDirtyRef = useRef(false);
   const reflectionDirtyRef = useRef(new Set<string>());
   const selectedBook = books.find((book) => book.id === selectedId) ?? null;
+  const displayedAnnotations = note?.bookId === selectedId ? annotations : [];
+  const sortedAnnotations = useMemo(() => [...displayedAnnotations].sort((left, right) => {
+    const comparison = right.createdAt.localeCompare(left.createdAt);
+    return sortNewestFirst ? comparison : -comparison;
+  }), [displayedAnnotations, sortNewestFirst]);
+  const selectedAnnotation = displayedAnnotations.find((record) => record.id === selectedAnnotationId) ?? null;
 
   useEffect(() => {
     if (selectedId !== selectedBookId) onSelectBook(selectedId);
@@ -416,6 +443,12 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     reflectionDirtyRef.current.clear();
     setSavingId(null);
     setNote(null);
+    setSummary("");
+    setAnnotations([]);
+    setReflectionDrafts({});
+    setSelectedAnnotationId(null);
+    setShowSummary(false);
+    setBookPickerOpen(false);
     return () => { refreshRequestRef.current += 1; selectionVersionRef.current += 1; };
   }, [selectedId]);
 
@@ -432,6 +465,11 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
       setReflectionDrafts((current) => Object.fromEntries(nextAnnotations.map((record) => [record.id,
         reflectionDirtyRef.current.has(record.id) ? current[record.id] ?? record.reflection : record.reflection,
       ])));
+      setSelectedAnnotationId((current) => {
+        if (current && nextAnnotations.some((record) => record.id === current)) return current;
+        return [...nextAnnotations].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id ?? null;
+      });
+      if (!nextAnnotations.length) setShowSummary(true);
     } catch (reason) {
       if (requestId !== refreshRequestRef.current) return;
       onMessage(reason instanceof Error ? reason.message : String(reason));
@@ -502,6 +540,9 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
       refreshRequestRef.current += 1;
       setAnnotations((current) => current.filter((item) => item.id !== record.id));
       reflectionDirtyRef.current.delete(record.id);
+      const remaining = sortedAnnotations.filter((item) => item.id !== record.id);
+      setSelectedAnnotationId(remaining[0]?.id ?? null);
+      if (!remaining.length) setShowSummary(true);
       onMessage("高亮和感悟已删除");
     } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); }
     finally { if (selectionVersion === selectionVersionRef.current) { setSavingId(null); setLoadingNotes(false); } }
@@ -516,21 +557,83 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     onSelectBook(bookId);
   };
 
+  const discardDrafts = () => {
+    summaryDirtyRef.current = false;
+    reflectionDirtyRef.current.clear();
+    setSummary(note?.summary ?? "");
+    setReflectionDrafts(Object.fromEntries(annotations.map((record) => [record.id, record.reflection])));
+  };
+
+  const selectDetail = (target: "summary" | AnnotationRecord) => {
+    const nextIsSummary = target === "summary";
+    const nextId = nextIsSummary ? null : target.id;
+    if (showSummary === nextIsSummary && selectedAnnotationId === nextId) return;
+    if ((summaryDirtyRef.current || reflectionDirtyRef.current.size > 0)
+      && !window.confirm("当前内容有未保存的修改。放弃修改并继续吗？")) return;
+    discardDrafts();
+    setShowSummary(nextIsSummary);
+    setSelectedAnnotationId(nextId);
+  };
+
   return (
     <div className="notes-workspace-page">
-      <header className="notes-workspace-header"><div><p className="eyebrow">阅读与思考</p><h1>整书笔记</h1><p>{isDesktopApp() ? "每本书的总结、摘录和感悟都集中在这里，可随时编辑。" : "查看并编辑阅读时保存的摘录和感悟；整书总结暂在桌面端编辑。"}</p></div></header>
+      <header className="notes-workspace-header">
+        <div className="notes-page-heading"><p className="eyebrow">阅读与思考</p><h1>整书笔记</h1></div>
+        {selectedBook && <div className="notes-book-toolbar">
+          <div className="notes-book-picker">
+            <button className="notes-current-book" aria-haspopup="listbox" aria-expanded={bookPickerOpen} onClick={() => setBookPickerOpen((value) => !value)}>
+              <Cover book={selectedBook} mini />
+              <span><strong>{selectedBook.title}</strong><small>{selectedBook.author}</small></span>
+              <ChevronDown size={17} />
+            </button>
+            {bookPickerOpen && <div className="notes-book-menu" role="listbox" aria-label="切换图书">
+              {books.map((book) => <button key={book.id} role="option" aria-selected={book.id === selectedId} onClick={() => { selectBook(book.id); setBookPickerOpen(false); }}><Cover book={book} mini /><span><strong>{book.title}</strong><small>{book.author}</small></span></button>)}
+            </div>}
+          </div>
+          <span className="notes-count"><strong>{displayedAnnotations.length}</strong> 条摘录</span>
+          <button className={`secondary-button notes-summary-entry ${showSummary ? "active" : ""}`} onClick={() => selectDetail("summary")}><NotebookPen size={16} />整书总结</button>
+          <button className="secondary-button" onClick={() => onOpenQuote(selectedBook, null)}><BookOpen size={16} />打开图书</button>
+        </div>}
+      </header>
+
       {!books.length ? <div className="empty-state"><NotebookPen size={28} /><h3>还没有可记录的图书</h3><p>导入一本 EPUB 并开始阅读后，就可以建立整书笔记。</p></div> : (
-        <div className="notes-workspace">
-          <aside className="notes-book-list" aria-label="选择图书">
-            {books.map((book) => <button key={book.id} className={selectedId === book.id ? "active" : ""} onClick={() => selectBook(book.id)}><Cover book={book} mini /><span><strong>{book.title}</strong><small>{book.author}</small></span></button>)}
+        <div className="notes-master-detail">
+          <aside className="notes-list-pane" aria-label="当前图书笔记列表">
+            <div className="notes-list-heading"><h2>全部笔记 <span>{displayedAnnotations.length}</span></h2><button onClick={() => setSortNewestFirst((value) => !value)}>{sortNewestFirst ? "最新" : "最早"}<ChevronDown size={14} /></button></div>
+            <div className="notes-list-scroll">
+              {loadingNotes && !note ? <div className="notes-loading compact"><span className="loading-spinner" />正在读取笔记…</div> : sortedAnnotations.length ? sortedAnnotations.map((record) => (
+                <button key={record.id} className={`note-list-item ${!showSummary && selectedAnnotationId === record.id ? "active" : ""}`} onClick={() => selectDetail(record)}>
+                  <span className="note-list-quote">❝</span>
+                  <p>{record.quote}</p>
+                  {record.reflection && <span className="note-list-reflection">有感悟</span>}
+                  <footer><span>{record.chapterTitle || record.chapterHref || "正文"}</span><time dateTime={record.createdAt}>{formatNoteDate(record.createdAt, true)}</time></footer>
+                </button>
+              )) : <div className="notes-empty-list"><Highlighter size={22} /><p>还没有摘录</p><span>阅读时选中原文即可添加。</span></div>}
+            </div>
           </aside>
-          <section className="notes-editor">
-            <fieldset className="notes-editor-body" disabled={savingId !== null}>
-            {loadingNotes || !selectedBook || !note || note.bookId !== selectedId ? <div className="notes-loading"><span className="loading-spinner" />正在读取笔记…</div> : <>
-              <div className="notes-editor-title"><div><span>当前图书</span><h2>{selectedBook.title}</h2><p>{selectedBook.author} · {annotations.length} 条摘录</p></div><button className="secondary-button" onClick={() => onOpenQuote(selectedBook, null)}><BookOpen size={16} />打开图书</button></div>
-              <label className="notes-summary-editor"><span>读后总结</span><textarea readOnly={!isDesktopApp()} value={summary} onChange={(event) => { summaryDirtyRef.current = true; setSummary(event.target.value); }} placeholder="记录你对整本书的理解、问题和收获……" /><button className="primary-button" disabled={!isDesktopApp() || savingId === "summary" || summary === note.summary} onClick={() => void saveSummary()}><Save size={15} />{savingId === "summary" ? "保存中…" : "保存总结"}</button></label>
-              <div className="notes-records"><div className="notes-records-heading"><h3>原文与感悟</h3><span>{annotations.length} 条</span></div>{annotations.length ? annotations.map((record) => <article key={record.id} className="notes-record-card"><button className="notes-original" onClick={() => onOpenQuote(selectedBook, record.cfiRange)}><Highlighter size={17} /><blockquote>{record.quote}</blockquote><span>回到原文</span></button><label><span>我的感悟</span><textarea value={reflectionDrafts[record.id] ?? ""} onChange={(event) => { reflectionDirtyRef.current.add(record.id); setReflectionDrafts((current) => ({ ...current, [record.id]: event.target.value })); }} placeholder="写下对这段原文的理解……" /></label><footer><small>{record.chapterTitle || record.chapterHref}</small><div><button className="quiet-button destructive-text" disabled={savingId === record.id} onClick={() => void deleteRecord(record)}><Trash2 size={14} />删除</button><button className="secondary-button" disabled={savingId === record.id || (reflectionDrafts[record.id] ?? "") === record.reflection} onClick={() => void saveReflection(record)}><Save size={14} />{savingId === record.id ? "保存中…" : "保存感悟"}</button></div></footer></article>) : <div className="notes-empty-large"><Highlighter size={24} /><p>还没有摘录。阅读时选中一段正文，即可添加高亮或记录感悟。</p></div>}</div>
-            </>}
+
+          <section className="notes-detail-pane">
+            <fieldset className="notes-detail-body" disabled={savingId !== null}>
+              {loadingNotes && !note ? <div className="notes-loading"><span className="loading-spinner" />正在读取笔记…</div> : !selectedBook || !note || note.bookId !== selectedId ? <div className="notes-loading">请选择一本图书</div> : showSummary ? (
+                <article className="summary-detail">
+                  <header><div><span>当前图书</span><h2>整书总结</h2><p>{selectedBook.title}</p></div>{!isDesktopApp() && <span className="read-only-badge">移动端只读</span>}</header>
+                  <label><span>我的整书总结</span><textarea readOnly={!isDesktopApp()} value={summary} onChange={(event) => { summaryDirtyRef.current = true; setSummary(event.target.value); }} placeholder={isDesktopApp() ? "记录你对整本书的理解、问题和收获……" : "尚未在桌面端记录整书总结"} /></label>
+                  <footer><span>最后更新：{note.updatedAt ? formatNoteDate(note.updatedAt) : "尚未保存"}</span>{isDesktopApp() && <button className="primary-button" disabled={savingId === "summary" || summary === note.summary} onClick={() => void saveSummary()}><Save size={15} />{savingId === "summary" ? "保存中…" : "保存总结"}</button>}</footer>
+                </article>
+              ) : selectedAnnotation ? (
+                <article className="note-detail">
+                  <header className="note-detail-header"><span>所属章节</span><h2>{selectedAnnotation.chapterTitle || selectedAnnotation.chapterHref || "正文"}</h2></header>
+                  <blockquote className="note-detail-quote"><span aria-hidden="true">❝</span><p>{selectedAnnotation.quote}</p><footer>—— {selectedBook.author || "佚名"}《{selectedBook.title}》</footer></blockquote>
+                  <label className="note-reflection-editor"><span>我的感悟</span><textarea value={reflectionDrafts[selectedAnnotation.id] ?? ""} onChange={(event) => { reflectionDirtyRef.current.add(selectedAnnotation.id); setReflectionDrafts((current) => ({ ...current, [selectedAnnotation.id]: event.target.value })); }} placeholder="写下你对这段摘录的理解、联想或批注……" /><button className="primary-button" disabled={savingId === selectedAnnotation.id || (reflectionDrafts[selectedAnnotation.id] ?? "") === selectedAnnotation.reflection} onClick={() => void saveReflection(selectedAnnotation)}><Save size={15} />{savingId === selectedAnnotation.id ? "保存中…" : "保存感悟"}</button></label>
+                  <dl className="note-metadata">
+                    <div><dt>摘录时间</dt><dd>{formatNoteDate(selectedAnnotation.createdAt)}</dd></div>
+                    <div><dt>所属章节</dt><dd>{selectedAnnotation.chapterTitle || selectedAnnotation.chapterHref || "正文"}</dd></div>
+                    <div><dt>原文位置</dt><dd title={selectedAnnotation.cfiRange}>{compactCfi(selectedAnnotation.cfiRange)}</dd></div>
+                    <div><dt>更新时间</dt><dd>{formatNoteDate(selectedAnnotation.updatedAt)}</dd></div>
+                  </dl>
+                  <footer className="note-detail-actions"><button className="secondary-button" onClick={() => onOpenQuote(selectedBook, selectedAnnotation.cfiRange)}><BookOpen size={15} />回到原文</button><button className="quiet-button destructive-text" disabled={savingId === selectedAnnotation.id} onClick={() => void deleteRecord(selectedAnnotation)}><Trash2 size={15} />删除笔记</button></footer>
+                </article>
+              ) : <div className="notes-empty-large"><Highlighter size={24} /><p>选择左侧的一条摘录，或打开整书总结。</p></div>}
             </fieldset>
           </section>
         </div>

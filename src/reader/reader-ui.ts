@@ -6,6 +6,15 @@ export function isIOSWebDevice(
   return /iPad|iPhone|iPod/i.test(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
 }
 
+export function isMobileWebDevice(
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  platform = typeof navigator === "undefined" ? "" : navigator.platform,
+  maxTouchPoints = typeof navigator === "undefined" ? 0 : navigator.maxTouchPoints,
+) {
+  return /Android|iPad|iPhone|iPod|Mobile/i.test(userAgent)
+    || (platform === "MacIntel" && maxTouchPoints > 1);
+}
+
 export function readerProgressLabel(
   percentage: number,
   showPages: boolean,
