@@ -1,6 +1,7 @@
 import { BookMarked, BookOpen, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BookRecord } from "../types";
+import { getMobileContinueBook, readMobileRecentOpens, sortMobileBooksByRecentOpen } from "./mobile-recent-books";
 
 type MobileLibraryViewProps = {
   books: BookRecord[];
@@ -15,10 +16,9 @@ type MobileLibraryViewProps = {
 export function MobileLibraryView({ books, busy, onImport, onOpenBook, onSetFinished, onDelete, onRemoveLocal }: MobileLibraryViewProps) {
   const [actionSheetBookId, setActionSheetBookId] = useState<string | null>(null);
   const [actionSheetInteractive, setActionSheetInteractive] = useState(false);
-  const continueBook = useMemo(() => books
-    .filter((book) => book.progress > 0 && !book.finished)
-    .sort((left, right) => right.progress - left.progress)[0], [books]);
-  // TODO(Task 2B): choose the most recently opened unfinished book after that state exists.
+  const recentOpens = useMemo(() => readMobileRecentOpens(), [books]);
+  const continueBook = useMemo(() => getMobileContinueBook(books, recentOpens), [books, recentOpens]);
+  const sortedBooks = useMemo(() => sortMobileBooksByRecentOpen(books, recentOpens), [books, recentOpens]);
   const actionSheetBook = useMemo(() => books.find((book) => book.id === actionSheetBookId) ?? null, [actionSheetBookId, books]);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function MobileLibraryView({ books, busy, onImport, onOpenBook, onSetFini
 
       <section className="mobile-bookshelf">
         <h2>我的书架</h2>
-        {books.length ? <div className="mobile-book-grid">{books.map((book) => <MobileBookCard key={book.id} book={book} onLongPress={() => openActionSheet(book)} onOpen={() => onOpenBook(book)} />)}</div> : <div className="mobile-library-empty"><BookMarked size={28} /><h3>书库还是空的</h3><p>点击右上角的“+”，选择一个或多个 EPUB 文件。</p><button onClick={onImport} disabled={busy}>{busy ? "导入中…" : "导入第一本书"}</button></div>}
+        {sortedBooks.length ? <div className="mobile-book-grid">{sortedBooks.map((book) => <MobileBookCard key={book.id} book={book} onLongPress={() => openActionSheet(book)} onOpen={() => onOpenBook(book)} />)}</div> : <div className="mobile-library-empty"><BookMarked size={28} /><h3>书库还是空的</h3><p>点击右上角的“+”，选择一个或多个 EPUB 文件。</p><button onClick={onImport} disabled={busy}>{busy ? "导入中…" : "导入第一本书"}</button></div>}
       </section>
 
       {actionSheetBook && <MobileBookActionSheet book={actionSheetBook} interactive={actionSheetInteractive} onClose={closeActionSheet} onOpen={() => { closeActionSheet(); onOpenBook(actionSheetBook); }} onSetFinished={() => { closeActionSheet(); onSetFinished(actionSheetBook); }} onDelete={() => { closeActionSheet(); onDelete(actionSheetBook); }} onRemoveLocal={() => { closeActionSheet(); onRemoveLocal(actionSheetBook); }} />}

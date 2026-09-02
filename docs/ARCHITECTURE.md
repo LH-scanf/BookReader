@@ -34,6 +34,7 @@ Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile
 | `src/App.tsx` | 书库、设置、独立整书笔记页面；图书操作；监听 `library-changed` 刷新书库快照 |
 | `src/ui/ui-mode.ts` | 集中判断 Desktop / Mobile App shell 模式，并提供 React 包装 |
 | `src/desktop/`、`src/mobile/` | DesktopAppShell / MobileAppShell 与后续各端专属 CSS 边界 |
+| `src/mobile/mobile-recent-books.ts` | Mobile 最近打开顺序的本机 UI 状态；不写入同步书库。 |
 | `src/EpubReader.tsx` | EPUB 渲染、翻页/滚动、目录、主题、脚注、搜索、高亮、进度保存及同步定位仲裁 |
 | `src/library-api.ts` | 平台无关入口，按环境加载 LibraryProvider |
 | `src/library/` | Provider 契约、桌面桥接、Web 书库与共享协议 |

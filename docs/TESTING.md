@@ -48,7 +48,18 @@
 | MOBILE-LIB-06 | 打开图书更多菜单与滚动到最后一行 | 既有更多菜单能力仍可使用；三列不横向溢出，内容不被底部导航遮挡。 |
 | MOBILE-LIB-07 | 在 Desktop shell 打开书库 | 原“个人阅读空间 / 我的书库”、搜索、导入、排序、书架和元信息保持不变。 |
 
-当前 Continue Reading 仍沿用既有“未读且进度最高”的选择逻辑；Task 2B 才会改为最近真正进入阅读器的未读图书。
+## Task 2B：Mobile 最近阅读语义
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-RECENT-01 | 依次真正进入 Reader 的图书 A、B，再返回书库 | B 显示为 Continue Reading，且排在 A 前；不按进度或导入时间选择。 |
+| MOBILE-RECENT-02 | 打开 progress 为 0 的未读图书后返回书库 | 该书仍显示为 Continue Reading。 |
+| MOBILE-RECENT-03 | 最近打开的图书标记为已读后返回书库 | Continue Reading 整个模块消失；不自动补位到第二近的未读图书。 |
+| MOBILE-RECENT-04 | 长按、打开/取消 Action Sheet、标记已读、删除、移除本机下载或导入图书 | 不改变最近阅读顺序。 |
+| MOBILE-RECENT-05 | 从完整笔记的“打开图书”或“回到原文”进入 Reader | 该书成为最近打开的书。 |
+| MOBILE-RECENT-06 | 没有最近打开记录、记录损坏或含已删除图书 ID | 书库仍可用；没有有效最近书时不显示 Continue Reading；未打开图书保持原有相对顺序。 |
+
+最近打开时间仅保存在当前设备的 `bookreader-mobile-recent-open-v1`，不写入 BookReaderLibrary 或同步协议。Desktop 书库排序和 Continue Reading 保持原有行为。
 
 ## PWA 新增用例
 

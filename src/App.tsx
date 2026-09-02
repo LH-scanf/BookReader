@@ -26,6 +26,7 @@ import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, delete
 import { DesktopAppShell } from "./desktop/DesktopAppShell";
 import { MobileLibraryView } from "./mobile/MobileLibraryView";
 import { MobileAppShell } from "./mobile/MobileAppShell";
+import { recordMobileBookOpen } from "./mobile/mobile-recent-books";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
 
@@ -49,6 +50,14 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const uiMode = useUiMode();
+
+  const openReader = useCallback((book: BookRecord, cfi: string | null = null) => {
+    if (uiMode === "mobile") recordMobileBookOpen(book.id);
+    setActiveBook(book);
+    setReaderTargetCfi(cfi);
+    setNotesBookId(book.id);
+    setView("reader");
+  }, [uiMode]);
 
   useEffect(() => { if (view === "reader" && !activeBook) setView("library"); }, [view, activeBook]);
 
@@ -233,9 +242,9 @@ function App() {
   ) : !library.libraryDir ? (
     <LibrarySetup busy={busy} onSelect={selectLibrary} />
   ) : view === "notes" ? (
-    <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={(book, cfi) => { setActiveBook(book); setReaderTargetCfi(cfi); setNotesBookId(book.id); setView("reader"); }} />
+    <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={openReader} />
   ) : uiMode === "mobile" ? (
-    <MobileLibraryView books={library.books} busy={busy} onImport={importBooks} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onRemoveLocal={(book) => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }} />
+    <MobileLibraryView books={library.books} busy={busy} onImport={importBooks} onOpenBook={openReader} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onRemoveLocal={(book) => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }} />
   ) : (
     <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
   );
