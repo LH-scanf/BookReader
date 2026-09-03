@@ -133,13 +133,17 @@
 .bookreader-mobile .mobile-reader-notes-header span { overflow: hidden; color: var(--panel-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .bookreader-mobile .mobile-reader-notes-header button { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; margin: -6px -4px 0 0; padding: 0; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; }
 .bookreader-mobile .mobile-reader-notes-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
-.bookreader-mobile .mobile-reader-note { display: flex; flex-direction: column; gap: 11px; padding: 17px 3px 18px; border-bottom: 1px solid var(--panel-line); }
-.bookreader-mobile .mobile-reader-note-quote { display: flex; flex-direction: column; gap: 7px; align-items: flex-start; padding: 1px 0 1px 10px; border: 0; border-left: 2px solid color-mix(in srgb, var(--panel-muted) 36%, transparent); background: transparent; color: var(--panel-text); font: inherit; text-align: left; cursor: pointer; }
-.bookreader-mobile .mobile-reader-note-quote > span { font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 15px; line-height: 1.7; }
-.bookreader-mobile .mobile-reader-note-quote small { color: var(--panel-muted); font-size: 12px; }
-.bookreader-mobile .mobile-reader-note-reflection { display: flex; flex-direction: column; gap: 4px; color: var(--panel-muted); }
-.bookreader-mobile .mobile-reader-note-reflection > span { font-size: 12px; font-weight: 600; }
-.bookreader-mobile .mobile-reader-note-reflection p { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.bookreader-mobile .mobile-reader-note { display: flex; flex-direction: column; gap: 12px; padding: 20px 3px; border-bottom: 1px solid var(--panel-line); }
+.bookreader-mobile .mobile-reader-note-quote { display: flex; flex-direction: column; gap: 7px; padding: 2px 11px 4px; border-left: 2px solid color-mix(in srgb, var(--panel-text) 38%, transparent); background: color-mix(in srgb, var(--panel-control) 50%, transparent); }
+.bookreader-mobile .mobile-reader-note-label { color: var(--panel-muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.bookreader-mobile .mobile-reader-note-quote p { margin: 0; color: var(--panel-text); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
+.bookreader-mobile .mobile-reader-note-chapter { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-left: 12px; }
+.bookreader-mobile .mobile-reader-note-chapter small { min-width: 0; overflow: hidden; color: var(--panel-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.bookreader-mobile .mobile-reader-note-chapter button, .bookreader-mobile .mobile-reader-note-reflection button { flex: 0 0 auto; min-height: 30px; padding: 3px 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; font-size: 12px; cursor: pointer; }
+.bookreader-mobile .mobile-reader-note-reflection { display: flex; flex-direction: column; gap: 7px; padding: 2px 0 0 12px; color: var(--panel-muted); }
+.bookreader-mobile .mobile-reader-note-reflection > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bookreader-mobile .mobile-reader-note-reflection > div span { font-size: 12px; font-weight: 600; }
+.bookreader-mobile .mobile-reader-note-reflection p { margin: 0; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .bookreader-mobile .mobile-reader-add-reflection { align-self: flex-start; min-height: 34px; padding: 4px 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; font-size: 13px; cursor: pointer; }
 .bookreader-mobile .mobile-reader-notes-empty { display: flex; flex-direction: column; gap: 7px; padding: 45px 12px; color: var(--panel-muted); text-align: center; }
 .bookreader-mobile .mobile-reader-notes-empty strong { color: var(--panel-text); font-size: 15px; }

@@ -46,6 +46,11 @@ export function MobileReaderNotesSheet({ bookTitle, annotations, onClose, onOpen
     return () => cancelAnimationFrame(frame);
   }, [scrollRestoreVersion]);
 
+  const startReflection = (annotation: AnnotationRecord) => {
+    savedScrollTopRef.current = listRef.current?.scrollTop ?? 0;
+    onAddReflection(annotation, savedScrollTopRef.current);
+  };
+
   return <div className="mobile-reader-notes-layer" role="presentation">
     <button className="mobile-reader-notes-backdrop" aria-label="关闭笔记" onClick={onClose} />
     <section className="mobile-reader-notes-sheet" role="dialog" aria-modal="true" aria-label="笔记">
@@ -57,16 +62,14 @@ export function MobileReaderNotesSheet({ bookTitle, annotations, onClose, onOpen
         {annotations.length === 0
           ? <div className="mobile-reader-notes-empty"><strong>还没有摘录</strong><span>阅读时长按文字，可以高亮或写下感悟。</span></div>
           : annotations.map((annotation) => <article className="mobile-reader-note" key={annotation.id}>
-            <button className="mobile-reader-note-quote" onClick={() => onOpenQuote(annotation)}>
-              <span>“{annotation.quote}”</span>
-              {annotation.chapterTitle && <small>{annotation.chapterTitle}</small>}
-            </button>
+            <div className="mobile-reader-note-quote">
+              <span className="mobile-reader-note-label">摘录</span>
+              <p>“{annotation.quote}”</p>
+            </div>
+            <div className="mobile-reader-note-chapter"><small>{annotation.chapterTitle || "正文"}</small><button onClick={() => onOpenQuote(annotation)}>回到原文</button></div>
             {annotation.reflection.trim()
-              ? <div className="mobile-reader-note-reflection"><span>我的感悟</span><p>{annotation.reflection}</p></div>
-              : <button className="mobile-reader-add-reflection" onClick={() => {
-                savedScrollTopRef.current = listRef.current?.scrollTop ?? 0;
-                onAddReflection(annotation, savedScrollTopRef.current);
-              }}>+ 补充感悟</button>}
+              ? <div className="mobile-reader-note-reflection"><div><span>感悟</span><button onClick={() => startReflection(annotation)}>编辑</button></div><p>{annotation.reflection}</p></div>
+              : <button className="mobile-reader-add-reflection" onClick={() => startReflection(annotation)}>+ 补充感悟</button>}
           </article>)}
       </div>
       <button className="mobile-reader-open-full-notes" onClick={onOpenFullNotes}>查看完整笔记 <ArrowRight size={16} /></button>
