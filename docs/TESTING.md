@@ -100,7 +100,7 @@
 | --- | --- | --- |
 | MOBILE-NOTES-01 | Mobile Reader 显示 controls 后点击“笔记” | 留在 Reader，隐藏 chrome 后打开约 75%–80% viewport 高度的当前书笔记 Sheet；正文不重排、不跳位。 |
 | MOBILE-NOTES-02 | 当前书有摘录和感悟 | 仅显示当前书 annotations，原文为主体、感悟为次要内容；按 epub.js CFI 正文顺序而非创建时间排列。 |
-| MOBILE-NOTES-03 | 点击摘录原文或“回到原文” | 摘录仅作展示，不关闭 Sheet；只有“回到原文”关闭 Sheet，复用 Reader `focusCfi` 跳回正文并保留既有短暂目标高亮。 |
+| MOBILE-NOTES-03 | 点击摘录原文或“回到原文” | 摘录仅作展示，不关闭 Sheet；只有“回到原文”关闭 Sheet，复用 `beginPreview()` 记录原 CFI、`rendition.display()` 定位后再由 `focusCfi` 高亮；同章节和跨章节均可返回。 |
 | MOBILE-NOTES-04 | 摘录没有感悟或已有感悟 | 分别显示“+ 补充感悟”或“编辑”，二者复用同一 Mobile 感悟编辑流程；不在 Sheet 常驻 textarea。 |
 | MOBILE-NOTES-05 | 当前书没有摘录 | 显示简洁空状态，且仍可点击“查看完整笔记 →”。 |
 | MOBILE-NOTES-06 | 点击“查看完整笔记 →” | 复用 `openNotesWorkspace()`，保存进度后离开 Reader 并打开当前书完整笔记页。 |

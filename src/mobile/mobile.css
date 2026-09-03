@@ -140,10 +140,11 @@
 .bookreader-mobile .mobile-reader-note-chapter { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-left: 12px; }
 .bookreader-mobile .mobile-reader-note-chapter small { min-width: 0; overflow: hidden; color: var(--panel-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .bookreader-mobile .mobile-reader-note-chapter button, .bookreader-mobile .mobile-reader-note-reflection button { flex: 0 0 auto; min-height: 30px; padding: 3px 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; font-size: 12px; cursor: pointer; }
-.bookreader-mobile .mobile-reader-note-reflection { display: flex; flex-direction: column; gap: 7px; padding: 2px 0 0 12px; color: var(--panel-muted); }
+.bookreader-mobile .mobile-reader-note-reflection { display: flex; flex-direction: column; gap: 9px; margin-top: 2px; padding: 10px 12px 11px; background: color-mix(in srgb, var(--panel-control) 38%, transparent); color: var(--panel-muted); }
 .bookreader-mobile .mobile-reader-note-reflection > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.bookreader-mobile .mobile-reader-note-reflection > div span { font-size: 12px; font-weight: 600; }
-.bookreader-mobile .mobile-reader-note-reflection p { margin: 0; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.bookreader-mobile .mobile-reader-note-reflection > div span { color: var(--panel-text); font-size: 12px; font-weight: 650; }
+.bookreader-mobile .mobile-reader-note-reflection button { min-height: 27px; padding: 3px 8px; border-radius: 99px; background: color-mix(in srgb, var(--panel-bg) 66%, transparent); color: var(--panel-muted); }
+.bookreader-mobile .mobile-reader-note-reflection p { margin: 0; color: var(--panel-text); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .bookreader-mobile .mobile-reader-add-reflection { align-self: flex-start; min-height: 34px; padding: 4px 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; font-size: 13px; cursor: pointer; }
 .bookreader-mobile .mobile-reader-notes-empty { display: flex; flex-direction: column; gap: 7px; padding: 45px 12px; color: var(--panel-muted); text-align: center; }
 .bookreader-mobile .mobile-reader-notes-empty strong { color: var(--panel-text); font-size: 15px; }

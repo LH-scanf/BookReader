@@ -467,11 +467,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     (left, right) => new EpubCFI().compare(left, right),
   ), [annotations, book.id]);
 
-  const openMobileAnnotation = useCallback((annotation: AnnotationRecord) => {
-    setMobileNotesOpen(false);
-    void focusCfi(annotation.cfiRange);
-  }, [focusCfi]);
-
   const addMobileReflection = useCallback((annotation: AnnotationRecord) => {
     setMobileReflectionDraft({
       id: annotation.id,
@@ -776,6 +771,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     await renditionRef.current.display(cfi);
     await focusCfi(cfi);
   };
+  const openMobileAnnotation = useCallback((annotation: AnnotationRecord) => {
+    setMobileNotesOpen(false);
+    void beginPreview(annotation.cfiRange);
+  }, [beginPreview]);
   const returnToReading = async () => {
     if (!returnCfiRef.current || !renditionRef.current) return;
     await renditionRef.current.display(returnCfiRef.current);
