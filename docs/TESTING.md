@@ -108,6 +108,17 @@
 | MOBILE-NOTES-08 | 从第 1、5、20 条摘录点击“+ 补充感悟” | Notes Sheet 保持 mounted，fixed Mobile 编辑层不受 Sheet scrollTop 影响；键盘打开后取消/完成 header 仍可见。 |
 | MOBILE-NOTES-09 | 在 Mobile 编辑层取消或完成感悟 | 回到原 Notes Sheet 的原列表位置；成功内容就地更新且不显示成功 toast，失败仍显示错误。 |
 
+## Task 3C：Mobile Reader 文字选区操作
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-SELECTION-01 | 长按选择一段新文字 | 保留 iOS 原生选区，屏幕底部安全区上方显示固定“高亮 / 写感悟”操作条，不随选区坐标移动。 |
+| MOBILE-SELECTION-02 | 点击高亮 | 复用 `createHighlight(selectionDraft, "")`，保存、高亮显示并清除原生选区；成功不显示 toast。 |
+| MOBILE-SELECTION-03 | 点击写感悟后完成或取消 | 使用 Mobile Reflection Editor；完成保存高亮与感悟并返回 Reader，取消不创建 annotation 且清除选区。 |
+| MOBILE-SELECTION-04 | 再次选择已有 annotation | 操作条显示“编辑感悟 / 删除”；编辑复用同一编辑器并带入原内容。 |
+| MOBILE-SELECTION-05 | 删除已有 annotation | 使用 Mobile 删除确认，不调用 `window.confirm()`；成功后删除高亮和感悟并关闭操作条。 |
+| MOBILE-SELECTION-06 | Desktop Reader 选择文字 | 保留原坐标 toolbar、shared reflection dialog 与删除确认行为，不显示 Mobile Action Bar。 |
+
 ## PWA 新增用例
 
 | 编号 | 操作 | 预期与当前验证范围 |

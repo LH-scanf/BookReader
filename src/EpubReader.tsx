@@ -7,10 +7,12 @@ import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
+import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
 import { MobileReaderNotesSheet, sortAnnotationsByReadingOrder } from "./reader/ui/MobileReaderNotesSheet";
 import { MobileReaderReflectionEditor } from "./reader/ui/MobileReaderReflectionEditor";
 import { MobileReaderSettingsSheet } from "./reader/ui/MobileReaderSettingsSheet";
 import { MobileTocSheet } from "./reader/ui/MobileTocSheet";
+import { MobileSelectionActionBar } from "./reader/ui/MobileSelectionActionBar";
 import { getCurrentUiMode } from "./ui/ui-mode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, removeAnnotation, saveAnnotation } from "./library-api";
@@ -128,6 +130,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
   const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
   const [mobileReflectionDraft, setMobileReflectionDraft] = useState<ReflectionDraft | null>(null);
+  const [mobileSelectionReflectionDraft, setMobileSelectionReflectionDraft] = useState<ReflectionDraft | null>(null);
+  const [mobileDeleteSelection, setMobileDeleteSelection] = useState<SelectionDraft | null>(null);
   const [mobileNotesScrollRestoreVersion, setMobileNotesScrollRestoreVersion] = useState(0);
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
@@ -809,6 +813,32 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       closeMobileReflectionEditor();
     } catch (reason) { setReaderMessage(String(reason)); }
   };
+  const openMobileSelectionReflection = (draft: SelectionDraft) => {
+    setSelectionDraft(null);
+    setMobileSelectionReflectionDraft({ id: draft.annotationId, quote: draft.quote, reflection: draft.reflection ?? "", chapterTitle: draft.chapterTitle, chapterHref: draft.chapterHref, cfiRange: draft.cfiRange });
+  };
+  const closeMobileSelectionReflection = () => {
+    setMobileSelectionReflectionDraft(null);
+    setSelectionDraft(null);
+    clearReaderSelection(renditionRef.current);
+  };
+  const saveMobileSelectionReflection = async () => {
+    if (!mobileSelectionReflectionDraft) return;
+    try {
+      const record = await saveAnnotation({ ...mobileSelectionReflectionDraft, bookId: book.id });
+      setAnnotations((current) => [...current.filter((item) => item.id !== record.id), record]);
+      closeMobileSelectionReflection();
+    } catch (reason) { setReaderMessage(String(reason)); }
+  };
+  const deleteMobileSelectionNote = async () => {
+    const draft = mobileDeleteSelection;
+    if (!draft?.annotationId) return;
+    try {
+      await removeAnnotation(book.id, draft.annotationId);
+      setAnnotations((current) => current.filter((item) => item.id !== draft.annotationId));
+      setMobileDeleteSelection(null); setSelectionDraft(null); clearReaderSelection(renditionRef.current);
+    } catch (reason) { setReaderMessage(String(reason)); }
+  };
   const deleteSelectionNote = async (draft: SelectionDraft) => {
     if (!draft.annotationId || !window.confirm("确定删除这条高亮和笔记吗？")) return;
     try {
@@ -892,7 +922,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       <main className="reading-stage">{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
-      {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft, selectionDraft.reflection ?? "")}><Highlighter size={15} />高亮标记</button><button onClick={() => setReflectionDraft({ id: selectionDraft.annotationId, quote: selectionDraft.quote, reflection: selectionDraft.reflection ?? "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />{selectionDraft.annotationId ? "编辑笔记" : "添加笔记"}</button>{selectionDraft.annotationId && <button className="destructive-text" onClick={() => void deleteSelectionNote(selectionDraft)}><Trash2 size={15} />删除笔记</button>}<button aria-label="取消" onClick={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }}><X size={14} /></button></div>}
+      {selectionDraft && (mobileReader
+        ? !mobileDeleteSelection && <MobileSelectionActionBar hasExistingAnnotation={Boolean(selectionDraft.annotationId)} onHighlight={() => void createHighlight(selectionDraft, "")} onReflect={() => openMobileSelectionReflection(selectionDraft)} onDelete={() => setMobileDeleteSelection(selectionDraft)} onDismiss={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }} />
+        : <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft, selectionDraft.reflection ?? "")}><Highlighter size={15} />高亮标记</button><button onClick={() => setReflectionDraft({ id: selectionDraft.annotationId, quote: selectionDraft.quote, reflection: selectionDraft.reflection ?? "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />{selectionDraft.annotationId ? "编辑笔记" : "添加笔记"}</button>{selectionDraft.annotationId && <button className="destructive-text" onClick={() => void deleteSelectionNote(selectionDraft)}><Trash2 size={15} />删除笔记</button>}<button aria-label="取消" onClick={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }}><X size={14} /></button></div>)}
+      {mobileReader && mobileSelectionReflectionDraft && <MobileReaderReflectionEditor draft={mobileSelectionReflectionDraft} onChange={(reflection) => setMobileSelectionReflectionDraft((current) => current ? { ...current, reflection } : null)} onCancel={closeMobileSelectionReflection} onSave={() => void saveMobileSelectionReflection()} />}
+      {mobileReader && mobileDeleteSelection && <MobileDeleteAnnotationDialog onCancel={() => setMobileDeleteSelection(null)} onConfirm={() => void deleteMobileSelectionNote()} />}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
       {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog">{iosWeb && <div className="mobile-note-header"><button onClick={() => setReflectionDraft(null)}>取消</button><strong>笔记</strong><button className="save-reflection" onClick={() => void saveReflection()}>完成</button></div>}<div><span>所选原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>笔记<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="添加笔记……" /></label>{!iosWeb && <div className="reflection-actions"><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div>}</div></div>}
       <footer className={`reader-footer${mobileReader && mobileControlsVisible ? " reader-footer-controls-visible" : ""}`}>{mobileReader ? <button className="reader-progress-toggle" aria-label={mobileControlsVisible ? "隐藏阅读控制" : "显示阅读控制"} onClick={toggleMobileControls}>{Math.round(percentage * 100)}%</button> : <span className="reader-progress-toggle" aria-label="阅读进度">{Math.round(percentage * 100)}%</span>}</footer>
