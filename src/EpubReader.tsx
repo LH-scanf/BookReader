@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
+import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
@@ -86,6 +87,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const chapterRef = useRef("正在载入");
   const chapterHrefRef = useRef(book.chapterHref ?? "");
   const highlightReflowTimerRef = useRef<number | null>(null);
+  const orientationRestoreTimerRef = useRef<number | null>(null);
+  const orientationRestorePlanRef = useRef<MobileOrientationRestorePlan | null>(null);
+  const orientationRestoreGenerationRef = useRef(0);
+  const restoringOrientationRef = useRef(false);
+  const orientationRestoreInFlightRef = useRef(false);
   const pagingDiagnosticEnabledRef = useRef(false);
   const mobileWeb = !isDesktopApp() && isMobileWebDevice();
   const mobileReader = getCurrentUiMode() === "mobile";
@@ -466,6 +472,65 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     } catch { /* malformed external CFI */ }
   }, [readingMode]);
 
+  useEffect(() => {
+    if (!mobileReader) return;
+    const readViewport = (): ReaderViewport => ({
+      width: Math.round(window.visualViewport?.width ?? window.innerWidth),
+      height: Math.round(window.visualViewport?.height ?? window.innerHeight),
+    });
+    let viewport = readViewport();
+    const scheduleRestore = () => {
+      const nextViewport = readViewport();
+      const orientationChanged = hasOrientationViewportChange(viewport, nextViewport);
+      viewport = nextViewport;
+      if (!orientationChanged || orientationRestoreInFlightRef.current) return;
+      const anchor = displayedCfiRef.current ?? lastProgressRef.current?.cfi ?? null;
+      const generation = orientationRestoreGenerationRef.current + 1;
+      const plan = captureMobileOrientationRestore(orientationRestorePlanRef.current, anchor, localNavigationAtRef.current, generation);
+      if (!plan) return;
+      orientationRestorePlanRef.current = plan;
+      orientationRestoreGenerationRef.current = plan.generation;
+      restoringOrientationRef.current = true;
+      if (orientationRestoreTimerRef.current) window.clearTimeout(orientationRestoreTimerRef.current);
+      orientationRestoreTimerRef.current = window.setTimeout(() => {
+        const pending = orientationRestorePlanRef.current;
+        if (!pending || !shouldRestoreMobileOrientation(pending, orientationRestoreGenerationRef.current, localNavigationAtRef.current)) {
+          orientationRestorePlanRef.current = null;
+          restoringOrientationRef.current = false;
+          return;
+        }
+        const rendition = renditionRef.current;
+        if (!rendition) { orientationRestorePlanRef.current = null; restoringOrientationRef.current = false; return; }
+        orientationRestoreInFlightRef.current = true;
+        void (async () => {
+          try {
+            await rendition.display(pending.cfi);
+            await focusCfi(pending.cfi);
+          } catch (reason) { setReaderMessage(`旋转后恢复阅读位置失败：${String(reason)}`); }
+          finally {
+            if (orientationRestorePlanRef.current === pending) orientationRestorePlanRef.current = null;
+            restoringOrientationRef.current = false;
+            orientationRestoreInFlightRef.current = false;
+          }
+        })();
+      }, 220);
+    };
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", scheduleRestore);
+    window.addEventListener("orientationchange", scheduleRestore);
+    visualViewport?.addEventListener("resize", scheduleRestore);
+    return () => {
+      window.removeEventListener("resize", scheduleRestore);
+      window.removeEventListener("orientationchange", scheduleRestore);
+      visualViewport?.removeEventListener("resize", scheduleRestore);
+      if (orientationRestoreTimerRef.current) window.clearTimeout(orientationRestoreTimerRef.current);
+      orientationRestoreTimerRef.current = null;
+      orientationRestorePlanRef.current = null;
+      restoringOrientationRef.current = false;
+      orientationRestoreInFlightRef.current = false;
+    };
+  }, [focusCfi, mobileReader]);
+
   const mobileAnnotations = useMemo(() => sortAnnotationsByReadingOrder(
     annotations.filter((annotation) => annotation.bookId === book.id),
     (left, right) => new EpubCFI().compare(left, right),
@@ -671,7 +736,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           const item = flattenToc(navigation.toc ?? []).find((entry) => href.includes(entry.href.split("#")[0]));
           const label = item?.label?.trim() || href || "正文";
           chapterRef.current = label; chapterHrefRef.current = href; setChapter(label);
-          if (previewingRef.current) return;
+          const orientationPlan = orientationRestorePlanRef.current;
+          const orientationIsOverridingCurrentNavigation = restoringOrientationRef.current
+            && (!orientationPlan || localNavigationAtRef.current <= orientationPlan.navigationAt);
+          if (previewingRef.current || orientationIsOverridingCurrentNavigation) return;
           lastProgressRef.current = { cfi, href, percentage: next };
           onProgressRef.current(book.id, next, cfi, href);
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);

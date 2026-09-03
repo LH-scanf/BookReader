@@ -92,7 +92,16 @@
 | MOBILE-AA-04 | 检查 Mobile Sheet，关闭 × 或 backdrop | 不显示阅读方式、分页、诊断或桌面快捷键；关闭后回到沉浸阅读，进度 trigger 仍可用。 |
 | MOBILE-AA-05 | 在 Desktop Reader 打开阅读设置 | 保留原 settings panel、阅读方式、诊断和快捷键内容。 |
 
-已知待处理：Mobile Reader 从竖屏旋转至横屏时，可能暂时跳到当前章节末尾；恢复竖屏后会回到原阅读位置。iOS 字体自动放大问题已解决；该位置问题留待后续 orientation reflow 专项处理。
+## Task 3D：Mobile Reader 旋转位置稳定性
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-ORIENTATION-01 | 竖屏阅读一段文字后旋转横屏，再转回竖屏 | 每次以当前 CFI 为 anchor，在 viewport settle 后恢复到同一段文字附近；不跳到章节末尾、开头或其他章节。 |
+| MOBILE-ORIENTATION-02 | 旋转触发连续 window / visualViewport resize | 多个事件只执行一次 CFI restore；仅高度变化（如键盘）不触发。 |
+| MOBILE-ORIENTATION-03 | orientation reflow 期间发生新导航 | 新导航取消旧 anchor restore；恢复期间 relocated 不写入临时错误 progress，完成后恢复正常 progress 更新。 |
+| MOBILE-ORIENTATION-04 | Desktop Reader 改变窗口尺寸 | Desktop 不注册 Mobile restore，不改变既有阅读位置行为。 |
+
+iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复，必须保持。
 
 ## Task 3B-3：Mobile Reader 当前书笔记 Bottom Sheet
 
