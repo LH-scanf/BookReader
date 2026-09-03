@@ -82,6 +82,16 @@
 | MOBILE-TOC-04 | 在 Desktop Reader 打开目录或按 `T` | 保留既有左侧目录 panel、布局与快捷键行为。 |
 | MOBILE-TOC-05 | 阅读至较后章节，关闭后重新打开 Mobile 目录 | 当前章节有轻量 active 状态，列表只在打开时定位一次，显示在约 35%–40% 高度；之后可自由手动滚动。 |
 
+## Task 3B-2：Mobile Reader Aa Bottom Sheet
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-AA-01 | Mobile Reader 显示 controls 后点击“Aa” | Reader chrome 隐藏，显示按内容高度的阅读设置 Bottom Sheet；正文不重排、不跳位。 |
+| MOBILE-AA-02 | 点击 A−、A+ 和 slider | 复用现有 15–26 字号范围与本机持久化；正文立即更新，Mobile 不展示 px 数值。 |
+| MOBILE-AA-03 | 分别选择明亮、纸张、夜间 | 复用既有三种 ReaderTheme，主题立即生效，选中项有克制状态与真实色彩预览。 |
+| MOBILE-AA-04 | 检查 Mobile Sheet，关闭 × 或 backdrop | 不显示阅读方式、分页、诊断或桌面快捷键；关闭后回到沉浸阅读，进度 trigger 仍可用。 |
+| MOBILE-AA-05 | 在 Desktop Reader 打开阅读设置 | 保留原 settings panel、阅读方式、诊断和快捷键内容。 |
+
 已知待处理：Mobile Reader 从竖屏旋转至横屏时，可能暂时跳到当前章节末尾；恢复竖屏后会回到原阅读位置。iOS 字体自动放大问题已解决；该位置问题留待后续 orientation reflow 专项处理。
 
 ## PWA 新增用例

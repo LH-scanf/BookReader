@@ -105,3 +105,22 @@
 .bookreader-mobile .mobile-reader-toc-sheet nav button[data-toc-depth="0"] { color: var(--panel-text); font-weight: 600; }
 .bookreader-mobile .mobile-reader-toc-sheet nav button[data-current="true"] { background: color-mix(in srgb, var(--panel-control) 78%, transparent); color: var(--panel-text); font-weight: 600; }
 .bookreader-mobile .mobile-reader-toc-sheet nav button:active { background: var(--panel-hover); color: var(--panel-text); }
+.bookreader-mobile .mobile-reader-settings-layer { position: fixed; z-index: 35; inset: 0; }
+.bookreader-mobile .mobile-reader-settings-backdrop { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: rgba(15, 16, 18, .18); }
+.bookreader-mobile .mobile-reader-settings-sheet { position: absolute; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; gap: 19px; padding: 17px 18px calc(17px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 -10px 28px var(--panel-shadow); }
+.bookreader-mobile .mobile-reader-settings-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--panel-line); }
+.bookreader-mobile .mobile-reader-settings-header strong { font-size: 17px; }
+.bookreader-mobile .mobile-reader-settings-header button { width: 36px; height: 36px; display: grid; place-items: center; margin: -5px -4px -5px 0; padding: 0; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; }
+.bookreader-mobile .mobile-reader-setting-group { display: flex; flex-direction: column; gap: 11px; }
+.bookreader-mobile .mobile-reader-setting-group > span { font-size: 13px; font-weight: 600; }
+.bookreader-mobile .mobile-reader-setting-group > p { margin: -2px 0 0; color: var(--panel-muted); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 12px; line-height: 1.55; }
+.bookreader-mobile .mobile-reader-font-size-control { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
+.bookreader-mobile .mobile-reader-font-size-control button { width: 44px; height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--panel-text); font: 600 15px/1 system-ui, sans-serif; cursor: pointer; }
+.bookreader-mobile .mobile-reader-font-size-control button:disabled { color: var(--panel-muted); opacity: .45; }
+.bookreader-mobile .mobile-reader-font-size-control input { width: 100%; accent-color: var(--panel-text); }
+.bookreader-mobile .mobile-reader-theme-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.bookreader-mobile .mobile-reader-theme-options button { min-height: 43px; padding: 8px 5px; border: 1px solid transparent; border-radius: 9px; font: inherit; font-size: 13px; cursor: pointer; }
+.bookreader-mobile .mobile-reader-theme-options button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--panel-text) 38%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--panel-text) 22%, transparent); }
+.bookreader-mobile .mobile-reader-theme-light { background: #fafafa; color: #282828; }
+.bookreader-mobile .mobile-reader-theme-paper { background: #f4ecd9; color: #493d2d; }
+.bookreader-mobile .mobile-reader-theme-dark { background: #282a30; color: #ebe9e3; }
