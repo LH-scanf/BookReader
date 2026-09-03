@@ -5,7 +5,6 @@ import {
 } from "lucide-react";
 import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
-import { isMobileReaderCenterTap, mapIframePointToViewport, mobileReaderTapReason } from "./reader/mobile-reader-ui";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { getCurrentUiMode } from "./ui/ui-mode";
@@ -38,10 +37,6 @@ type SearchResult = { id: string; cfi: string; chapterTitle: string; excerpt: st
 type FootnotePopup = { title: string; text: string; x: number; y: number };
 type IframeDiagnosticEvent = "touchstart" | "touchend" | "selectionchange" | "selected" | "selection-poll";
 type PagingDiagnosticEvent = "content-start" | "content-end" | "rendition-start" | "rendition-end" | "recognized" | "next-requested" | "prev-requested" | "relocated";
-type MobileReaderEventName = "touchstart" | "touchmove" | "touchend";
-type MobileReaderEventCounts = Record<MobileReaderEventName, number>;
-type MobileReaderDiagnostic = { body: MobileReaderEventCounts; rendition: MobileReaderEventCounts; touchcancel: number; toggle: number; last: string; x: string; selection: boolean; moved: boolean; duration: string };
-const emptyMobileReaderEventCounts = (): MobileReaderEventCounts => ({ touchstart: 0, touchmove: 0, touchend: 0 });
 
 function flattenToc(items: NavItem[], depth = 0): Array<NavItem & { depth: number }> {
   return items.flatMap((item) => [{ ...item, depth }, ...flattenToc(item.subitems ?? [], depth + 1)]);
@@ -125,21 +120,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [mobileControlsVisible, setMobileControlsVisible] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
-  const [mobileReaderDiagnostic, setMobileReaderDiagnostic] = useState<MobileReaderDiagnostic>({ body: emptyMobileReaderEventCounts(), rendition: emptyMobileReaderEventCounts(), touchcancel: 0, toggle: 0, last: "-", x: "-", selection: false, moved: false, duration: "-" });
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
   const [pagingLayout, setPagingLayout] = useState<{ pageWidth: number; contentWidth: number; frameWidth: number; before?: string; after?: string } | null>(null);
   const [pagingFrameMetrics, setPagingFrameMetrics] = useState<{ viewWidth: number; iframeWidth: number; rootWidth: number; bodyWidth: number; stageWidth: number; stageLeft: number; pageWidth: number; delta: number } | null>(null);
-
-  useEffect(() => {
-    if (!iosWeb || !mobileReader) return;
-    // WebKit only needs this top-level registration to establish touch interest;
-    // it intentionally does not observe, alter, or cancel any gesture.
-    const bootstrapTouch = () => {};
-    window.addEventListener("touchstart", bootstrapTouch, { passive: true });
-    return () => window.removeEventListener("touchstart", bootstrapTouch);
-  }, [iosWeb, mobileReader]);
 
   const recordIframeDiagnostic = useCallback((event: IframeDiagnosticEvent) => {
     setIframeDiagnosticEvents((current) => ({ ...current, [event]: (current[event] ?? 0) + 1 }));
@@ -245,11 +230,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     setMobileControlsVisible((visible) => !visible);
     setMobileMoreOpen(false);
     setMobileInfoOpen(false);
-    setMobileReaderDiagnostic((current) => ({ ...current, toggle: current.toggle + 1 }));
-  }, []);
-
-  const recordMobileReaderEvent = useCallback((layer: "body" | "rendition", event: MobileReaderEventName) => {
-    setMobileReaderDiagnostic((current) => ({ ...current, [layer]: { ...current[layer], [event]: current[layer][event] + 1 } }));
   }, []);
 
   const showSelectionToolbar = useCallback((contents: EpubContents, cfiRange?: string) => {
@@ -535,57 +515,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             contents.document.addEventListener("wheel", onWheel, { passive: false });
             contents.document.addEventListener("touchstart", () => recordPagingDiagnostic("content-start"), { passive: true });
             contents.document.addEventListener("touchend", () => recordPagingDiagnostic("content-end"), { passive: true });
-            if (mobileReader) {
-              let mobileTap: { x: number; y: number; at: number; moved: boolean } | null = null;
-              const bindMobileBodyTouch = () => {
-                const body = contents.document.body;
-                if (!body || body.dataset.bookreaderMobileTapBound === "true") return;
-                body.dataset.bookreaderMobileTapBound = "true";
-                body.addEventListener("touchstart", (event: TouchEvent) => {
-                  recordMobileReaderEvent("body", "touchstart");
-                  if (event.touches.length !== 1) { mobileTap = null; return; }
-                  const point = event.touches[0];
-                  mobileTap = { x: point.clientX, y: point.clientY, at: performance.now(), moved: false };
-                }, { passive: true });
-                body.addEventListener("touchmove", (event: TouchEvent) => {
-                  recordMobileReaderEvent("body", "touchmove");
-                  const point = event.touches[0];
-                  if (!mobileTap || !point) return;
-                  if (Math.hypot(point.clientX - mobileTap.x, point.clientY - mobileTap.y) > 12) mobileTap.moved = true;
-                }, { passive: true });
-                body.addEventListener("touchend", (event: TouchEvent) => {
-                  recordMobileReaderEvent("body", "touchend");
-                  const gesture = mobileTap;
-                  mobileTap = null;
-                  const point = event.changedTouches[0];
-                  if (!point) return;
-                  const frame = contents.window.frameElement as HTMLElement | null;
-                  const frameRect = frame?.getBoundingClientRect();
-                  const start = gesture
-                    ? (frameRect ? mapIframePointToViewport({ x: gesture.x, y: gesture.y }, frameRect) : { x: gesture.x, y: gesture.y })
-                    : { x: point.clientX, y: point.clientY };
-                  const end = frameRect ? mapIframePointToViewport({ x: point.clientX, y: point.clientY }, frameRect) : { x: point.clientX, y: point.clientY };
-                  const selection = Boolean(contents.window.getSelection()?.toString().trim());
-                  const duration = gesture ? performance.now() - gesture.at : 0;
-                  const tapInput = {
-                    start,
-                    end,
-                    elapsedMs: duration,
-                    viewport: { width: window.innerWidth, height: window.innerHeight },
-                    moved: gesture?.moved ?? false,
-                    hasSelection: selection,
-                    interactiveTarget: Boolean((event.target as Element | null)?.closest("a, button, input, textarea, select, [contenteditable='true']")),
-                    hasTouchState: Boolean(gesture),
-                  };
-                  const reason = mobileReaderTapReason(tapInput);
-                  setMobileReaderDiagnostic((current) => ({ ...current, last: reason, x: `${Math.round(end.x)}/${Math.round(end.y)}`, selection, moved: gesture?.moved ?? false, duration: gesture ? `${Math.round(duration)}ms` : "-" }));
-                  if (isMobileReaderCenterTap(tapInput)) toggleMobileControls();
-                }, { passive: true });
-                body.addEventListener("touchcancel", () => { mobileTap = null; setMobileReaderDiagnostic((current) => ({ ...current, touchcancel: current.touchcancel + 1 })); }, { passive: true });
-              };
-              if (contents.document.body) bindMobileBodyTouch();
-              else contents.document.addEventListener("DOMContentLoaded", bindMobileBodyTouch, { once: true });
-            }
             if (iosWeb && mobileReader) {
               let edgeSwipeStart: { x: number; y: number; at: number } | null = null;
               contents.document.addEventListener("touchstart", (event: TouchEvent) => {
@@ -648,7 +577,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         // gesture state here avoids listeners being lost as IframeViews change.
         let touch: { x: number; y: number; at: number } | null = null;
         rendition.on("touchstart", (event: TouchEvent) => {
-          if (mobileReader) recordMobileReaderEvent("rendition", "touchstart");
           recordPagingDiagnostic("rendition-start");
           if (iframeDiagnostic) { recordIframeDiagnostic("touchstart"); return; }
           localNavigationAtRef.current = Date.now();
@@ -657,7 +585,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           touch = { x: point.clientX, y: point.clientY, at: performance.now() };
         });
         rendition.on("touchend", (event: TouchEvent, contents: EpubContents) => {
-          if (mobileReader) recordMobileReaderEvent("rendition", "touchend");
           recordPagingDiagnostic("rendition-end");
           if (iframeDiagnostic) { recordIframeDiagnostic("touchend"); return; }
           const start = touch;
@@ -675,9 +602,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
             turnPage(direction);
           }
         });
-        // epub.js's DOM_EVENTS explicitly forwards touchmove.
-        // These listeners are diagnostic-only and do not alter reader gestures.
-        rendition.on("touchmove", () => { if (mobileReader) recordMobileReaderEvent("rendition", "touchmove"); });
         rendition.on("touchcancel", () => { touch = null; });
         rendition.on("selected", (cfiRange: string, contents: EpubContents) => {
           if (iframeDiagnostic) { recordIframeDiagnostic("selected"); return; }
@@ -904,7 +828,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       {!mobileReader && toolbarHidden && <div className="reader-toolbar-reveal"><button className="show-reader-toolbar" aria-label="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /><span>显示顶部栏</span></button></div>}
 
       {mobileReader && <MobileReaderChrome visible={mobileControlsVisible} moreOpen={mobileMoreOpen} infoOpen={mobileInfoOpen} title={book.title} author={book.author} chapter={chapter} onBack={() => void leaveReader()} onToggleMore={() => { setMobileMoreOpen((open) => !open); setMobileInfoOpen(false); }} onOpenSearch={() => { closeOtherPanels(); setSearchOpen(true); setMobileMoreOpen(false); }} onOpenInfo={() => { setMobileMoreOpen(false); setMobileInfoOpen(true); }} onCloseInfo={() => setMobileInfoOpen(false)} onOpenToc={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }} onOpenSettings={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }} onOpenNotes={() => void openNotesWorkspace()} />}
-      {mobileReader && <aside className="mobile-reader-diagnostic" aria-label="Mobile Reader event-layer diagnostic"><strong>ReaderDiag</strong><strong>BODY</strong><span>ts {mobileReaderDiagnostic.body.touchstart} · tm {mobileReaderDiagnostic.body.touchmove} · te {mobileReaderDiagnostic.body.touchend}</span><strong>RENDITION</strong><span>ts {mobileReaderDiagnostic.rendition.touchstart} · tm {mobileReaderDiagnostic.rendition.touchmove} · te {mobileReaderDiagnostic.rendition.touchend}</span><span>toggle {mobileReaderDiagnostic.toggle}</span><span>last: {mobileReaderDiagnostic.last}</span><span>moved: {mobileReaderDiagnostic.moved ? 1 : 0}</span><span>duration: {mobileReaderDiagnostic.duration} · cancel: {mobileReaderDiagnostic.touchcancel}</span><button onClick={toggleMobileControls}>TEST CHROME</button></aside>}
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
@@ -921,7 +844,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       {selectionDraft && <div className="selection-toolbar" style={{ left: selectionDraft.x, top: selectionDraft.y }} onClick={(event) => event.stopPropagation()}><button onClick={() => void createHighlight(selectionDraft, selectionDraft.reflection ?? "")}><Highlighter size={15} />高亮标记</button><button onClick={() => setReflectionDraft({ id: selectionDraft.annotationId, quote: selectionDraft.quote, reflection: selectionDraft.reflection ?? "", chapterTitle: selectionDraft.chapterTitle, chapterHref: selectionDraft.chapterHref, cfiRange: selectionDraft.cfiRange })}><MessageSquarePlus size={15} />{selectionDraft.annotationId ? "编辑笔记" : "添加笔记"}</button>{selectionDraft.annotationId && <button className="destructive-text" onClick={() => void deleteSelectionNote(selectionDraft)}><Trash2 size={15} />删除笔记</button>}<button aria-label="取消" onClick={() => { setSelectionDraft(null); clearReaderSelection(renditionRef.current); }}><X size={14} /></button></div>}
       {footnote && <div className="footnote-popover" style={{ left: footnote.x, top: footnote.y }} onClick={(event) => event.stopPropagation()}><div><strong>{footnote.title}</strong><button aria-label="关闭脚注" onClick={() => setFootnote(null)}><X size={14} /></button></div><p>{footnote.text}</p></div>}
       {reflectionDraft && <div className="reader-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReflectionDraft(null); }}><div className="reflection-dialog">{iosWeb && <div className="mobile-note-header"><button onClick={() => setReflectionDraft(null)}>取消</button><strong>笔记</strong><button className="save-reflection" onClick={() => void saveReflection()}>完成</button></div>}<div><span>所选原文</span><blockquote>{reflectionDraft.quote}</blockquote></div><label>笔记<textarea autoFocus value={reflectionDraft.reflection} onChange={(event) => setReflectionDraft((current) => current ? { ...current, reflection: event.target.value } : null)} placeholder="添加笔记……" /></label>{!iosWeb && <div className="reflection-actions"><button onClick={() => setReflectionDraft(null)}>取消</button><button className="save-reflection" onClick={() => void saveReflection()}>保存到整书笔记</button></div>}</div></div>}
-      <footer className="reader-footer"><span className="reader-progress-toggle" aria-label="阅读进度">{Math.round(percentage * 100)}%</span></footer>
+      <footer className="reader-footer">{mobileReader ? <button className="reader-progress-toggle" aria-label={mobileControlsVisible ? "隐藏阅读控制" : "显示阅读控制"} onClick={toggleMobileControls}>{Math.round(percentage * 100)}%</button> : <span className="reader-progress-toggle" aria-label="阅读进度">{Math.round(percentage * 100)}%</span>}</footer>
     </div>
   );
 }
