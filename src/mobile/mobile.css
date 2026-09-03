@@ -65,6 +65,47 @@
 :root[data-appearance="dark"] .mobile-book-action-sheet button:disabled { color: #767a80; }
 :root[data-appearance="dark"] .mobile-book-action-sheet .mobile-book-action-sheet-cancel { background: #36383c; }
 
+/* Task 4A: Mobile complete notes is intentionally separate from the desktop master-detail workspace. */
+.mobile-notes-workspace { min-width: 0; max-width: 640px; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top)) 18px 32px; }
+.mobile-notes-header { min-height: 42px; display: flex; align-items: center; margin-bottom: 14px; }
+.mobile-notes-header h1 { margin: 0; color: #282b30; font-size: 25px; font-weight: 650; letter-spacing: -.025em; }
+.mobile-notes-book-strip { display: flex; gap: 10px; margin: 0 -18px 20px; padding: 0 18px 4px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; }
+.mobile-notes-book-strip::-webkit-scrollbar { display: none; }
+.mobile-notes-book-strip button { width: 48px; height: 70px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; padding: 0; border: 1px solid transparent; border-radius: 6px; background: #77736e; color: #f4f1eb; box-shadow: 0 3px 8px rgba(28, 31, 36, .14); cursor: pointer; }
+.mobile-notes-book-strip button.active { border-color: #45494f; box-shadow: 0 0 0 2px color-mix(in srgb, #45494f 20%, transparent), 0 3px 8px rgba(28, 31, 36, .14); }
+.mobile-notes-book-strip img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.mobile-notes-book-strip span { padding: 4px; font-family: "Noto Serif SC", serif; font-size: 11px; line-height: 1.35; text-align: center; }
+.mobile-notes-content { display: flex; flex-direction: column; gap: 28px; }
+.mobile-notes-current-book { display: flex; flex-direction: column; gap: 5px; }
+.mobile-notes-current-book > span { color: #777b81; font-size: 12px; }
+.mobile-notes-current-book h2 { margin: 0; color: #303339; font-size: 19px; font-weight: 650; line-height: 1.4; }
+.mobile-notes-current-book > div, .mobile-notes-section > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mobile-notes-current-book small, .mobile-notes-section > header span { color: #777b81; font-size: 12px; }
+.mobile-notes-current-book button { min-height: 36px; display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: #42464c; font: inherit; font-size: 13px; cursor: pointer; }
+.mobile-notes-section { display: flex; flex-direction: column; gap: 11px; }
+.mobile-notes-section > header h2 { margin: 0; color: #303339; font-size: 16px; font-weight: 650; }
+.mobile-notes-summary, .mobile-notes-empty-copy { margin: 0; color: #5f6369; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+.mobile-notes-empty-copy { color: #85898e; }
+.mobile-notes-annotation-list { border-top: 1px solid #e1e2de; }
+.mobile-notes-annotation-list article { display: flex; flex-direction: column; gap: 7px; padding: 17px 0; border-bottom: 1px solid #e1e2de; }
+.mobile-notes-annotation-list blockquote { margin: 0; padding-left: 10px; border-left: 2px solid #b3b6b1; color: #36393e; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+.mobile-notes-annotation-list small { color: #85898e; font-size: 12px; }
+.mobile-notes-annotation-list p { margin: 2px 0 0; color: #656970; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.mobile-notes-loading { min-height: 128px; display: flex; align-items: center; justify-content: center; gap: 9px; color: #777b81; font-size: 13px; }
+.mobile-notes-empty { padding: 58px 12px; color: #74787e; text-align: center; }
+.mobile-notes-empty h2 { margin: 12px 0 5px; color: #3a3d42; font-size: 16px; }
+.mobile-notes-empty p { margin: 0; font-size: 13px; line-height: 1.6; }
+:root[data-appearance="dark"] .mobile-notes-header h1, :root[data-appearance="dark"] .mobile-notes-current-book h2, :root[data-appearance="dark"] .mobile-notes-section > header h2, :root[data-appearance="dark"] .mobile-notes-empty h2 { color: #e1e2e4; }
+:root[data-appearance="dark"] .mobile-notes-book-strip button { background: #4a4c50; }
+:root[data-appearance="dark"] .mobile-notes-book-strip button.active { border-color: #e1e2e4; box-shadow: 0 0 0 2px color-mix(in srgb, #e1e2e4 18%, transparent); }
+:root[data-appearance="dark"] .mobile-notes-current-book > span, :root[data-appearance="dark"] .mobile-notes-current-book small, :root[data-appearance="dark"] .mobile-notes-section > header span, :root[data-appearance="dark"] .mobile-notes-empty-copy, :root[data-appearance="dark"] .mobile-notes-annotation-list small, :root[data-appearance="dark"] .mobile-notes-loading, :root[data-appearance="dark"] .mobile-notes-empty { color: var(--app-muted); }
+:root[data-appearance="dark"] .mobile-notes-current-book button { color: #e1e2e4; }
+:root[data-appearance="dark"] .mobile-notes-summary, :root[data-appearance="dark"] .mobile-notes-annotation-list blockquote { color: #dcdddf; }
+:root[data-appearance="dark"] .mobile-notes-annotation-list { border-color: var(--app-line); }
+:root[data-appearance="dark"] .mobile-notes-annotation-list article { border-color: var(--app-line); }
+:root[data-appearance="dark"] .mobile-notes-annotation-list blockquote { border-color: #858a90; }
+:root[data-appearance="dark"] .mobile-notes-annotation-list p { color: #b9bdc2; }
+
 /* Task 3A: Mobile reader chrome overlays the shared rendition without changing its layout. */
 .bookreader-mobile .reader-mobile { height: 100dvh; overscroll-behavior-x: none; touch-action: pan-y; }
 .bookreader-mobile .reader-mobile .reading-stage, .bookreader-mobile .reader-mobile.mode-scroll .reading-stage { width: 100%; height: 100dvh; display: block; padding: 0; overflow: hidden; }

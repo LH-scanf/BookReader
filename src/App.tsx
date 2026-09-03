@@ -26,6 +26,7 @@ import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, delete
 import { DesktopAppShell } from "./desktop/DesktopAppShell";
 import { MobileLibraryView } from "./mobile/MobileLibraryView";
 import { MobileAppShell } from "./mobile/MobileAppShell";
+import { MobileNotesWorkspace } from "./mobile/MobileNotesWorkspace";
 import { recordMobileBookOpen } from "./mobile/mobile-recent-books";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
@@ -579,6 +580,18 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     setShowSummary(nextIsSummary);
     setSelectedAnnotationId(nextId);
   };
+
+  if (getCurrentUiMode() === "mobile") {
+    return <MobileNotesWorkspace
+      books={books}
+      selectedBook={selectedBook}
+      annotations={displayedAnnotations}
+      summary={summary}
+      loading={loadingNotes}
+      onSelectBook={selectBook}
+      onOpenBook={() => { if (selectedBook) onOpenQuote(selectedBook, null); }}
+    />;
+  }
 
   return (
     <div className="notes-workspace-page">

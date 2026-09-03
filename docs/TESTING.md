@@ -103,6 +103,16 @@
 
 iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复，必须保持。
 
+## Task 4A：Mobile 完整笔记页面骨架
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-NOTES-PAGE-01 | 在 Mobile 底部导航进入“笔记” | 显示单列 Mobile Notes 页面：顶部仅“笔记”，不出现 Desktop master-detail、下拉选书或大段说明。 |
+| MOBILE-NOTES-PAGE-02 | 横向滚动封面条并点击另一封面 | 封面条不换行；复用既有 `selectBook()` 未保存修改保护切换当前书，并确保选中封面可见。 |
+| MOBILE-NOTES-PAGE-03 | 检查当前图书、总结和摘录区 | 显示书名、摘录数量、轻量“打开图书”入口，以及一列只读的读后总结/原文与感悟；页面末尾不被底部导航遮挡。 |
+| MOBILE-NOTES-PAGE-04 | Reader 点击“查看完整笔记 →” | 保留阅读中的 `notesBookId`，完整笔记页仍选中刚才阅读的图书。 |
+| MOBILE-NOTES-PAGE-05 | Desktop 进入整书笔记 | 保留原顶部工具栏、图书下拉选择、左右 master-detail、总结与感悟编辑、删除和排序行为。 |
+
 ## Task 3B-3：Mobile Reader 当前书笔记 Bottom Sheet
 
 | 编号 | 操作 | 预期结果 |
