@@ -1,5 +1,5 @@
 import {
-  ArrowLeft, ArrowUpLeft, BookOpen, ChevronLeft, ChevronRight, Highlighter,
+  ArrowLeft, ArrowUpLeft, BookOpen, ChevronLeft, ChevronRight, CornerUpLeft, Highlighter,
   Eye, EyeOff, Menu, MessageSquarePlus, Moon, NotebookPen, Search, SlidersHorizontal, Trash2,
   Sun, X,
 } from "lucide-react";
@@ -861,7 +861,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const closeOtherPanels = () => { setTocOpen(false); setSettingsOpen(false); setSearchOpen(false); };
 
   return (
-    <div className={`reader reader-${readerTheme} mode-${readingMode}${iosWeb ? " reader-ios" : ""}${mobileReader ? " reader-mobile" : ""}${!mobileReader && toolbarHidden ? " reader-toolbar-hidden" : ""}`} onClick={() => setFootnote(null)}>
+    <div className={`reader reader-${readerTheme} mode-${readingMode}${iosWeb ? " reader-ios" : ""}${mobileReader ? " reader-mobile" : ""}${mobileReader && mobileControlsVisible ? " reader-mobile-controls-visible" : ""}${!mobileReader && toolbarHidden ? " reader-toolbar-hidden" : ""}`} onClick={() => setFootnote(null)}>
       {!mobileReader && <header className="reader-toolbar">
         <div className="reader-toolbar-side"><button className="toolbar-button" onClick={() => void leaveReader()} aria-label="返回书库"><ArrowLeft size={18} /><span className="back-label">返回书库</span></button><button className={`toolbar-button icon-only ${tocOpen ? "selected" : ""}`} aria-label="打开章节目录" onClick={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }}><Menu size={19} /></button></div>
         <div className="reader-title"><strong title={book.title}>{book.title}</strong><span>{chapter}</span></div>
@@ -872,7 +872,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {mobileReader && <MobileReaderChrome visible={mobileControlsVisible} moreOpen={mobileMoreOpen} infoOpen={mobileInfoOpen} title={book.title} author={book.author} chapter={chapter} onBack={() => void leaveReader()} onToggleMore={() => { setMobileMoreOpen((open) => !open); setMobileInfoOpen(false); }} onOpenSearch={() => { closeOtherPanels(); setSearchOpen(true); setMobileMoreOpen(false); }} onOpenInfo={() => { setMobileMoreOpen(false); setMobileInfoOpen(true); }} onCloseInfo={() => setMobileInfoOpen(false)} onOpenToc={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); if (next) setMobileControlsVisible(false); }} onOpenSettings={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); if (next) setMobileControlsVisible(false); }} onOpenNotes={() => { closeOtherPanels(); setMobileMoreOpen(false); setMobileInfoOpen(false); setMobileNotesOpen(true); setMobileControlsVisible(false); }} />}
 
-      {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
+      {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}>{mobileReader ? <CornerUpLeft size={15} /> : <ArrowUpLeft size={16} />}{mobileReader ? "返回阅读位置" : "返回刚才的阅读位置"}</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
       {iframeDiagnostic && <aside className="iframe-diagnostic" aria-live="polite"><strong>iframe 诊断：allow-scripts {allowScriptedContent ? "开启" : "关闭"}</strong><span>touchstart {iframeDiagnosticEvents.touchstart ?? 0} · touchend {iframeDiagnosticEvents.touchend ?? 0}</span><span>selectionchange {iframeDiagnosticEvents.selectionchange ?? 0} · selected {iframeDiagnosticEvents.selected ?? 0} · poll {iframeDiagnosticEvents["selection-poll"] ?? 0}</span><small>此模式只记录事件，不翻页、不弹出笔记栏。</small></aside>}
 

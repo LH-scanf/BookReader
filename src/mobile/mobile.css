@@ -72,6 +72,8 @@
 .bookreader-mobile .reader-mobile .epub-paper { overflow: hidden; }
 .bookreader-mobile .reader-mobile .reader-footer { right: 10px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 12; }
 .bookreader-mobile .reader-mobile .reader-footer.reader-footer-controls-visible { bottom: calc(65px + env(safe-area-inset-bottom)); z-index: 26; }
+.bookreader-mobile .reader-mobile .return-reading-button { z-index: 20; top: calc(8px + env(safe-area-inset-top)); left: 10px; width: max-content; max-width: calc(100vw - 20px); height: 36px; gap: 6px; padding: 0 11px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--reader-bg) 80%, transparent); color: var(--reader-text); box-shadow: none; backdrop-filter: blur(12px); transform: none; font-size: 12px; line-height: 1; white-space: nowrap; }
+.bookreader-mobile .reader-mobile.reader-mobile-controls-visible .return-reading-button { top: calc(64px + env(safe-area-inset-top)); }
 .bookreader-mobile .reader-mobile .reader-progress-toggle { width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: 10px; }
 .bookreader-mobile .mobile-reader-top-chrome, .bookreader-mobile .mobile-reader-bottom-chrome { position: fixed; z-index: 25; color: var(--reader-text); background: color-mix(in srgb, var(--reader-bg) 76%, transparent); backdrop-filter: blur(15px); }
 .bookreader-mobile .mobile-reader-top-chrome { inset: 0 0 auto; min-height: calc(55px + env(safe-area-inset-top)); display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: end; padding: env(safe-area-inset-top) 10px 7px; }
