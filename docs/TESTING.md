@@ -94,6 +94,18 @@
 
 已知待处理：Mobile Reader 从竖屏旋转至横屏时，可能暂时跳到当前章节末尾；恢复竖屏后会回到原阅读位置。iOS 字体自动放大问题已解决；该位置问题留待后续 orientation reflow 专项处理。
 
+## Task 3B-3：Mobile Reader 当前书笔记 Bottom Sheet
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-NOTES-01 | Mobile Reader 显示 controls 后点击“笔记” | 留在 Reader，隐藏 chrome 后打开约 75%–80% viewport 高度的当前书笔记 Sheet；正文不重排、不跳位。 |
+| MOBILE-NOTES-02 | 当前书有摘录和感悟 | 仅显示当前书 annotations，原文为主体、感悟为次要内容；按 epub.js CFI 正文顺序而非创建时间排列。 |
+| MOBILE-NOTES-03 | 点击摘录原文 | 关闭 Sheet，复用 Reader `focusCfi` 回到原文并保留既有短暂目标高亮。 |
+| MOBILE-NOTES-04 | 摘录没有感悟 | 显示“+ 补充感悟”，复用现有感悟编辑流程；不在 Sheet 常驻 textarea。 |
+| MOBILE-NOTES-05 | 当前书没有摘录 | 显示简洁空状态，且仍可点击“查看完整笔记 →”。 |
+| MOBILE-NOTES-06 | 点击“查看完整笔记 →” | 复用 `openNotesWorkspace()`，保存进度后离开 Reader 并打开当前书完整笔记页。 |
+| MOBILE-NOTES-07 | Desktop Reader 点击笔记 | 保留既有直接进入完整笔记页的行为与视觉。 |
+
 ## PWA 新增用例
 
 | 编号 | 操作 | 预期与当前验证范围 |

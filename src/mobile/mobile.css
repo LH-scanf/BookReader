@@ -124,3 +124,24 @@
 .bookreader-mobile .mobile-reader-theme-light { background: #fafafa; color: #282828; }
 .bookreader-mobile .mobile-reader-theme-paper { background: #f4ecd9; color: #493d2d; }
 .bookreader-mobile .mobile-reader-theme-dark { background: #282a30; color: #ebe9e3; }
+.bookreader-mobile .mobile-reader-notes-layer { position: fixed; z-index: 35; inset: 0; }
+.bookreader-mobile .mobile-reader-notes-backdrop { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: rgba(15, 16, 18, .18); }
+.bookreader-mobile .mobile-reader-notes-sheet { position: absolute; right: 0; bottom: 0; left: 0; height: min(78dvh, calc(100dvh - env(safe-area-inset-top))); min-height: 0; display: flex; flex-direction: column; padding: 17px 18px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 -10px 28px var(--panel-shadow); }
+.bookreader-mobile .mobile-reader-notes-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 3px 13px; border-bottom: 1px solid var(--panel-line); }
+.bookreader-mobile .mobile-reader-notes-header > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.bookreader-mobile .mobile-reader-notes-header strong { font-size: 17px; }
+.bookreader-mobile .mobile-reader-notes-header span { overflow: hidden; color: var(--panel-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.bookreader-mobile .mobile-reader-notes-header button { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; margin: -6px -4px 0 0; padding: 0; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; }
+.bookreader-mobile .mobile-reader-notes-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.bookreader-mobile .mobile-reader-note { display: flex; flex-direction: column; gap: 9px; padding: 17px 3px; border-bottom: 1px solid var(--panel-line); }
+.bookreader-mobile .mobile-reader-note-quote { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; text-align: left; cursor: pointer; }
+.bookreader-mobile .mobile-reader-note-quote > span { font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 15px; line-height: 1.7; }
+.bookreader-mobile .mobile-reader-note-quote small { color: var(--panel-muted); font-size: 12px; }
+.bookreader-mobile .mobile-reader-note-reflection { display: flex; flex-direction: column; gap: 4px; color: var(--panel-muted); }
+.bookreader-mobile .mobile-reader-note-reflection > span { font-size: 12px; font-weight: 600; }
+.bookreader-mobile .mobile-reader-note-reflection p { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.bookreader-mobile .mobile-reader-add-reflection { align-self: flex-start; min-height: 34px; padding: 4px 0; border: 0; background: transparent; color: var(--panel-text); font: inherit; font-size: 13px; cursor: pointer; }
+.bookreader-mobile .mobile-reader-notes-empty { display: flex; flex-direction: column; gap: 7px; padding: 45px 12px; color: var(--panel-muted); text-align: center; }
+.bookreader-mobile .mobile-reader-notes-empty strong { color: var(--panel-text); font-size: 15px; }
+.bookreader-mobile .mobile-reader-notes-empty span { font-size: 13px; line-height: 1.65; }
+.bookreader-mobile .mobile-reader-open-full-notes { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; margin-top: 8px; padding: 8px; border: 0; border-top: 1px solid var(--panel-line); background: transparent; color: var(--panel-text); font: inherit; font-size: 14px; cursor: pointer; }
