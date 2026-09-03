@@ -7,6 +7,7 @@ import ePub, { type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
+import { MobileTocSheet } from "./reader/ui/MobileTocSheet";
 import { getCurrentUiMode } from "./ui/ui-mode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose, loadAnnotations, persistProgress, readBookBytes, removeAnnotation, saveAnnotation } from "./library-api";
@@ -827,13 +828,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {!mobileReader && toolbarHidden && <div className="reader-toolbar-reveal"><button className="show-reader-toolbar" aria-label="显示顶部栏" onClick={() => setToolbarHidden(false)}><Eye size={17} /><span>显示顶部栏</span></button></div>}
 
-      {mobileReader && <MobileReaderChrome visible={mobileControlsVisible} moreOpen={mobileMoreOpen} infoOpen={mobileInfoOpen} title={book.title} author={book.author} chapter={chapter} onBack={() => void leaveReader()} onToggleMore={() => { setMobileMoreOpen((open) => !open); setMobileInfoOpen(false); }} onOpenSearch={() => { closeOtherPanels(); setSearchOpen(true); setMobileMoreOpen(false); }} onOpenInfo={() => { setMobileMoreOpen(false); setMobileInfoOpen(true); }} onCloseInfo={() => setMobileInfoOpen(false)} onOpenToc={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); }} onOpenSettings={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }} onOpenNotes={() => void openNotesWorkspace()} />}
+      {mobileReader && <MobileReaderChrome visible={mobileControlsVisible} moreOpen={mobileMoreOpen} infoOpen={mobileInfoOpen} title={book.title} author={book.author} chapter={chapter} onBack={() => void leaveReader()} onToggleMore={() => { setMobileMoreOpen((open) => !open); setMobileInfoOpen(false); }} onOpenSearch={() => { closeOtherPanels(); setSearchOpen(true); setMobileMoreOpen(false); }} onOpenInfo={() => { setMobileMoreOpen(false); setMobileInfoOpen(true); }} onCloseInfo={() => setMobileInfoOpen(false)} onOpenToc={() => { const next = !tocOpen; closeOtherPanels(); setTocOpen(next); if (next) setMobileControlsVisible(false); }} onOpenSettings={() => { const next = !settingsOpen; closeOtherPanels(); setSettingsOpen(next); }} onOpenNotes={() => void openNotesWorkspace()} />}
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}><ArrowUpLeft size={16} />返回刚才的阅读位置</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
       {iframeDiagnostic && <aside className="iframe-diagnostic" aria-live="polite"><strong>iframe 诊断：allow-scripts {allowScriptedContent ? "开启" : "关闭"}</strong><span>touchstart {iframeDiagnosticEvents.touchstart ?? 0} · touchend {iframeDiagnosticEvents.touchend ?? 0}</span><span>selectionchange {iframeDiagnosticEvents.selectionchange ?? 0} · selected {iframeDiagnosticEvents.selected ?? 0} · poll {iframeDiagnosticEvents["selection-poll"] ?? 0}</span><small>此模式只记录事件，不翻页、不弹出笔记栏。</small></aside>}
 
-      {tocOpen && <aside className="reader-panel toc-panel"><PanelHeading title="目录" subtitle={book.title} onClose={() => setTocOpen(false)} /><nav>{flattenToc(toc).map((item) => <button key={`${item.id}-${item.href}`} style={{ paddingLeft: `${11 + item.depth * 14}px` }} onClick={() => void goTo(item.href, item.label)}><span>{item.label}</span></button>)}</nav></aside>}
+      {tocOpen && (mobileReader
+        ? <MobileTocSheet bookTitle={book.title} items={flattenToc(toc)} onClose={() => setTocOpen(false)} onSelect={(item) => void goTo(item.href, item.label)} />
+        : <aside className="reader-panel toc-panel"><PanelHeading title="目录" subtitle={book.title} onClose={() => setTocOpen(false)} /><nav>{flattenToc(toc).map((item) => <button key={`${item.id}-${item.href}`} style={{ paddingLeft: `${11 + item.depth * 14}px` }} onClick={() => void goTo(item.href, item.label)}><span>{item.label}</span></button>)}</nav></aside>)}
 
       {searchOpen && <aside className="reader-panel search-panel"><PanelHeading title="书内搜索" subtitle="跳转结果不会覆盖阅读进度" onClose={() => setSearchOpen(false)} /><form className="reader-search-form" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="输入关键词" /><button disabled={searching || !searchQuery.trim()}>{searching ? "搜索中" : "搜索"}</button></form><div className="search-results">{!searching && searchQuery && <small>找到 {searchResults.length} 处结果</small>}{searchResults.map((result) => <button key={result.id} onClick={() => void beginPreview(result.cfi)}><span>{result.excerpt}</span><small>{result.chapterTitle}</small></button>)}</div></aside>}
 

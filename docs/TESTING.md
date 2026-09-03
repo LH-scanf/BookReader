@@ -72,6 +72,15 @@
 | MOBILE-READER-05 | 点击 Mobile 底部目录、Aa、笔记 | 暂时分别复用现有目录、阅读设置和完整笔记页入口；Mobile 保持固定上下滚动。 |
 | MOBILE-READER-06 | 在 Desktop Reader 打开图书 | 原顶部工具栏、面板、分页/滚动、左右翻页区与快捷键保持不变。 |
 
+## Task 3B-1：Mobile Reader 目录 Bottom Sheet
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-TOC-01 | Mobile Reader 显示 controls 后点击“目录” | 显示约 70%–80% viewport 高度的目录 Bottom Sheet；正文留在背景且不重排。 |
+| MOBILE-TOC-02 | 检查多层 EPUB 目录 | 保留原始 hierarchy；每层额外缩进约 18px，一级章节视觉较强。 |
+| MOBILE-TOC-03 | 点击目录项、× 或 backdrop | 目录项继续调用既有 `goTo` 后收起 Sheet；× 与 backdrop 只收起 Sheet，阅读位置不改变。 |
+| MOBILE-TOC-04 | 在 Desktop Reader 打开目录或按 `T` | 保留既有左侧目录 panel、布局与快捷键行为。 |
+
 已知待处理：Mobile Reader 从竖屏旋转至横屏时，可能暂时跳到当前章节末尾；恢复竖屏后会回到原阅读位置。iOS 字体自动放大问题已解决；该位置问题留待后续 orientation reflow 专项处理。
 
 ## PWA 新增用例
