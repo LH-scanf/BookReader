@@ -105,6 +105,8 @@
 | MOBILE-NOTES-05 | 当前书没有摘录 | 显示简洁空状态，且仍可点击“查看完整笔记 →”。 |
 | MOBILE-NOTES-06 | 点击“查看完整笔记 →” | 复用 `openNotesWorkspace()`，保存进度后离开 Reader 并打开当前书完整笔记页。 |
 | MOBILE-NOTES-07 | Desktop Reader 点击笔记 | 保留既有直接进入完整笔记页的行为与视觉。 |
+| MOBILE-NOTES-08 | 从第 1、5、20 条摘录点击“+ 补充感悟” | Notes Sheet 保持 mounted，fixed Mobile 编辑层不受 Sheet scrollTop 影响；键盘打开后取消/完成 header 仍可见。 |
+| MOBILE-NOTES-09 | 在 Mobile 编辑层取消或完成感悟 | 回到原 Notes Sheet 的原列表位置；成功内容就地更新且不显示成功 toast，失败仍显示错误。 |
 
 ## PWA 新增用例
 

@@ -8,6 +8,7 @@ import { installPreciseMapping } from "./reader/precise-mapping";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileReaderNotesSheet, sortAnnotationsByReadingOrder } from "./reader/ui/MobileReaderNotesSheet";
+import { MobileReaderReflectionEditor } from "./reader/ui/MobileReaderReflectionEditor";
 import { MobileReaderSettingsSheet } from "./reader/ui/MobileReaderSettingsSheet";
 import { MobileTocSheet } from "./reader/ui/MobileTocSheet";
 import { getCurrentUiMode } from "./ui/ui-mode";
@@ -126,6 +127,8 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
   const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
+  const [mobileReflectionDraft, setMobileReflectionDraft] = useState<ReflectionDraft | null>(null);
+  const [mobileNotesScrollRestoreVersion, setMobileNotesScrollRestoreVersion] = useState(0);
   const [iframeDiagnosticEvents, setIframeDiagnosticEvents] = useState<Partial<Record<IframeDiagnosticEvent, number>>>({});
   const [pagingDiagnosticEnabled, setPagingDiagnosticEnabled] = useState(false);
   const [pagingDiagnosticEvents, setPagingDiagnosticEvents] = useState<Partial<Record<PagingDiagnosticEvent, number>>>({});
@@ -470,8 +473,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   }, [focusCfi]);
 
   const addMobileReflection = useCallback((annotation: AnnotationRecord) => {
-    setMobileNotesOpen(false);
-    setReflectionDraft({
+    setMobileReflectionDraft({
       id: annotation.id,
       quote: annotation.quote,
       reflection: annotation.reflection,
@@ -479,6 +481,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       chapterHref: annotation.chapterHref,
       cfiRange: annotation.cfiRange,
     });
+  }, []);
+
+  const closeMobileReflectionEditor = useCallback(() => {
+    setMobileReflectionDraft(null);
+    setMobileNotesScrollRestoreVersion((version) => version + 1);
   }, []);
 
   useEffect(() => {
@@ -794,6 +801,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       clearReaderSelection(renditionRef.current);
     } catch (reason) { setReaderMessage(String(reason)); }
   };
+  const saveMobileReflection = async () => {
+    if (!mobileReflectionDraft) return;
+    try {
+      const record = await saveAnnotation({ ...mobileReflectionDraft, bookId: book.id });
+      setAnnotations((current) => [...current.filter((item) => item.id !== record.id), record]);
+      clearReaderSelection(renditionRef.current);
+      closeMobileReflectionEditor();
+    } catch (reason) { setReaderMessage(String(reason)); }
+  };
   const deleteSelectionNote = async (draft: SelectionDraft) => {
     if (!draft.annotationId || !window.confirm("确定删除这条高亮和笔记吗？")) return;
     try {
@@ -871,7 +887,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         ? <MobileReaderSettingsSheet fontSize={fontSize} minFontSize={readerFontSizeMinimum} maxFontSize={readerFontSizeMaximum} readerTheme={readerTheme} onFontSizeChange={setFontSize} onThemeChange={setReaderTheme} onClose={() => setSettingsOpen(false)} />
         : <aside className="reader-panel settings-panel"><PanelHeading title="阅读设置" subtitle="自动记住阅读样式" onClose={() => setSettingsOpen(false)} /><div className="setting-group"><label>阅读方式</label>{mobileWeb ? <small>手机端固定为上下滚动</small> : <div className="segmented"><button className={readingMode === "paged" ? "active" : ""} onClick={() => setReadingMode("paged")}>分页</button><button className={readingMode === "scroll" ? "active" : ""} onClick={() => setReadingMode("scroll")}>滚动</button></div>}</div><div className="setting-group"><label>字号 <span>{fontSize}px</span></label><input type="range" min={readerFontSizeMinimum} max={readerFontSizeMaximum} value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /><div className="font-size-preview" style={{ fontSize: `${fontSize}px` }} aria-live="polite">清晨翻开一页书，看看此字号是否舒适。</div></div><div className="setting-group"><label>阅读主题</label><div className="theme-options"><button className={readerTheme === "light" ? "active light-swatch" : "light-swatch"} onClick={() => setReaderTheme("light")}><Sun size={16} />明亮</button><button className={readerTheme === "paper" ? "active paper-swatch" : "paper-swatch"} onClick={() => setReaderTheme("paper")}><BookOpen size={16} />纸张</button><button className={readerTheme === "dark" ? "active dark-swatch" : "dark-swatch"} onClick={() => setReaderTheme("dark")}><Moon size={16} />夜间</button></div></div>{!mobileWeb && <div className="setting-group paging-diagnostic"><label>分页诊断 <button className="quiet-button" onClick={() => { setPagingDiagnosticEvents({}); setPagingLayout(null); setPagingDiagnosticEnabled((value) => !value); }}>{pagingDiagnosticEnabled ? "停止记录" : "开始记录"}</button></label><div className="paging-test-actions"><button onClick={() => { recordPagingDiagnostic("prev-requested"); turnPage("prev"); }}>上一页测试</button><button onClick={() => { recordPagingDiagnostic("next-requested"); turnPage("next"); }}>下一页测试</button></div>{pagingDiagnosticEnabled && <small>内容 {pagingDiagnosticEvents["content-start"] ?? 0}/{pagingDiagnosticEvents["content-end"] ?? 0} · Rendition {pagingDiagnosticEvents["rendition-start"] ?? 0}/{pagingDiagnosticEvents["rendition-end"] ?? 0} · 重定位 {pagingDiagnosticEvents.relocated ?? 0}{pagingLayout && <> · 列 {pagingLayout.contentWidth}/{pagingLayout.frameWidth}px（页宽 {pagingLayout.pageWidth}px）</>}</small>}</div>}<div className="shortcut-help"><strong>快捷键</strong>{!mobileWeb && <span>分页：← → / PageUp PageDown 翻页</span>}<span>滚动：↑ ↓ / PageUp PageDown / 空格</span><span>Ctrl+Z 撤销刚刚的高亮 · Ctrl+F 搜索 · T 目录 · N 整书笔记 · Esc 关闭</span></div></aside>)}
 
-      {mobileReader && mobileNotesOpen && <MobileReaderNotesSheet bookTitle={book.title} annotations={mobileAnnotations} onClose={() => setMobileNotesOpen(false)} onOpenQuote={openMobileAnnotation} onAddReflection={addMobileReflection} onOpenFullNotes={() => void openNotesWorkspace()} />}
+      {mobileReader && mobileNotesOpen && <MobileReaderNotesSheet bookTitle={book.title} annotations={mobileAnnotations} onClose={() => setMobileNotesOpen(false)} onOpenQuote={openMobileAnnotation} onAddReflection={addMobileReflection} onOpenFullNotes={() => void openNotesWorkspace()} scrollRestoreVersion={mobileNotesScrollRestoreVersion} />}
+
+      {mobileReader && mobileReflectionDraft && <MobileReaderReflectionEditor draft={mobileReflectionDraft} onChange={(reflection) => setMobileReflectionDraft((current) => current ? { ...current, reflection } : null)} onCancel={closeMobileReflectionEditor} onSave={() => void saveMobileReflection()} />}
 
       <main className="reading-stage">{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-left" aria-label="上一页" onClick={() => turnPage("prev")}><ChevronLeft size={25} /></button>}<div className="reading-paper epub-paper" ref={viewerRef} />{readingMode === "paged" && !mobileWeb && <button className="page-zone page-zone-right" aria-label="下一页" onClick={() => turnPage("next")}><ChevronRight size={25} /></button>}{loading && <div className="reader-loading"><span className="loading-spinner" />正在载入 EPUB…</div>}{error && <div className="reader-error"><strong>无法打开这本书</strong><span>{error}</span><button onClick={onBack}>返回书库</button></div>}</main>
 
