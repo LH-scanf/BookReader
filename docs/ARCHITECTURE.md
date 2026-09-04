@@ -95,7 +95,7 @@ Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile
 - 后台刷新不卸载编辑区；未保存草稿优先于同步快照。切换图书时存在草稿会先询问是否放弃，保存期间暂时禁用编辑区以避免提交中继续输入被覆盖。
 - Desktop 页面展示采用 `顶部图书工具栏 → 左侧摘录摘要列表 → 右侧单条详情/整书总结`。Mobile 由 `MobileNotesWorkspace` 单独渲染为纵向阅读页与横向封面选书条；两端共用 `NotesWorkspace` 的状态、加载、保存和未保存修改保护。当前书仍由 `App.notesBookId` 控制，当前摘录只是一层 UI 选择状态，不写入同步数据。
 - 摘录排序只改变数组视图，不修改 `createdAt` 或 JSON；详情元数据直接读取既有 `createdAt`、`updatedAt`、`chapterTitle`、`chapterHref` 和 `cfiRange`。
-- 桌面端整书总结可写；Web/iOS 保持只读。普通摘录感悟仍沿用平台现有的 provider 能力，保存/删除继续进入原同步流程。
+- Desktop 保持既有整书总结编辑器；Mobile 使用独立的阅读态/局部编辑态，并通过同一个 `persistBookNote`、`saveAnnotation`、`removeAnnotation` 路径持久化。普通摘录感悟仍沿用平台现有的 provider 能力，保存/删除继续进入原同步流程。
 
 ## 开发与构建
 

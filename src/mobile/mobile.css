@@ -106,6 +106,50 @@
 :root[data-appearance="dark"] .mobile-notes-annotation-list blockquote { border-color: #858a90; }
 :root[data-appearance="dark"] .mobile-notes-annotation-list p { color: #b9bdc2; }
 
+/* Task 4B/4C: reading-first notes cards and local edit states. */
+.mobile-notes-summary-section > header button, .mobile-note-add-reflection, .mobile-note-card-actions button, .mobile-notes-summary-editor footer button, .mobile-note-card-editor footer button { min-height: 34px; padding: 3px 0; border: 0; background: transparent; color: #4c5158; font: inherit; font-size: 13px; cursor: pointer; }
+.mobile-notes-summary-section > header button { white-space: nowrap; }
+.mobile-notes-summary-editor { display: flex; flex-direction: column; gap: 10px; }
+.mobile-notes-summary-editor textarea, .mobile-note-card-editor textarea { width: 100%; min-height: 130px; box-sizing: border-box; resize: vertical; padding: 11px 12px; border: 1px solid #d7d8d4; border-radius: 9px; background: rgba(255, 255, 255, .42); color: #35393f; font: inherit; font-size: 14px; line-height: 1.7; }
+.mobile-notes-summary-editor footer, .mobile-note-card-editor footer { display: flex; align-items: center; justify-content: flex-end; gap: 17px; }
+.mobile-notes-save { color: #30363d !important; font-weight: 650 !important; }
+.mobile-notes-save:disabled { color: #a0a3a7 !important; }
+.mobile-notes-annotation-list { display: flex; flex-direction: column; gap: 12px; border: 0; }
+.mobile-notes-annotation-list .mobile-note-card { display: flex; flex-direction: column; gap: 12px; padding: 15px; border: 1px solid #d9dad6; border-radius: 11px; background: rgba(247, 247, 244, .72); }
+.mobile-note-card-chapter { color: #85898e; font-size: 12px; }
+.mobile-note-card blockquote { margin: 0; padding-left: 10px; border-left: 2px solid #7c9a9b; color: #36393e; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
+.mobile-note-card-reflection { display: flex; flex-direction: column; gap: 7px; padding-top: 2px; }
+.mobile-note-card-reflection span { color: #85898e; font-size: 12px; }
+.mobile-note-card-reflection p { margin: 0; color: #5d6269; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
+.mobile-note-add-reflection { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; color: #596d73; }
+.mobile-note-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 2px; }
+.mobile-note-card-actions button:last-child { width: 30px; display: grid; place-items: center; padding: 0; }
+.mobile-note-card.editing { scroll-margin-block: 26dvh; }
+.mobile-note-card-editor { display: flex; flex-direction: column; gap: 10px; }
+.mobile-note-card-editor textarea { min-height: 116px; scroll-margin-bottom: 30dvh; }
+.mobile-note-action-layer, .mobile-note-delete-layer { position: fixed; z-index: 75; inset: 0; }
+.mobile-note-action-backdrop, .mobile-note-delete-backdrop { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: rgba(18, 20, 23, .3); }
+.mobile-note-action-sheet { position: absolute; right: 0; bottom: 0; left: 0; display: grid; gap: 1px; padding: 10px 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; background: #f8f8f6; }
+.mobile-note-action-sheet button { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: #34383e; font: inherit; font-size: 16px; cursor: pointer; }
+.mobile-note-action-sheet .destructive, .mobile-note-delete-dialog .destructive { color: #b84a45; }
+.mobile-note-action-sheet .mobile-note-action-cancel { margin-top: 7px; background: #e9e9e5; font-weight: 600; }
+.mobile-note-delete-layer { z-index: 76; display: grid; place-items: end center; }
+.mobile-note-delete-dialog { position: relative; width: min(360px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 9px; margin-bottom: calc(14px + env(safe-area-inset-bottom)); padding: 18px; border-radius: 13px; background: #f8f8f6; color: #34383e; }
+.mobile-note-delete-dialog strong { font-size: 16px; }.mobile-note-delete-dialog p { margin: 0; color: #73777d; font-size: 13px; line-height: 1.6; }.mobile-note-delete-dialog footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 6px; }
+.mobile-note-delete-dialog button { min-height: 36px; padding: 0 11px; border: 0; border-radius: 8px; background: #ecece8; color: #44484e; font: inherit; font-size: 13px; cursor: pointer; }.mobile-note-delete-dialog .destructive { background: transparent; }.mobile-note-delete-dialog button:disabled { opacity: .55; }
+:root[data-appearance="dark"] .mobile-notes-summary-section > header button, :root[data-appearance="dark"] .mobile-note-add-reflection, :root[data-appearance="dark"] .mobile-note-card-actions button { color: #d3d6d9; }
+:root[data-appearance="dark"] .mobile-notes-summary-editor textarea, :root[data-appearance="dark"] .mobile-note-card-editor textarea { border-color: var(--app-line); background: rgba(255, 255, 255, .025); color: #e0e1e3; }
+:root[data-appearance="dark"] .mobile-notes-save { color: #e0e1e3 !important; }
+:root[data-appearance="dark"] .mobile-notes-annotation-list .mobile-note-card { border-color: var(--app-line); background: color-mix(in srgb, var(--app-surface-raised) 72%, transparent); }
+:root[data-appearance="dark"] .mobile-note-card-chapter, :root[data-appearance="dark"] .mobile-note-card-reflection span { color: var(--app-muted); }
+:root[data-appearance="dark"] .mobile-note-card blockquote { border-color: #77aeb0; color: #e1e2e4; }
+:root[data-appearance="dark"] .mobile-note-card-reflection p { color: #c4c7cb; }
+:root[data-appearance="dark"] .mobile-note-action-sheet, :root[data-appearance="dark"] .mobile-note-delete-dialog { background: #27282b; color: #e2e3e5; }
+:root[data-appearance="dark"] .mobile-note-action-sheet button { color: #e2e3e5; }
+:root[data-appearance="dark"] .mobile-note-action-sheet .mobile-note-action-cancel, :root[data-appearance="dark"] .mobile-note-delete-dialog button { background: #36383c; color: #e2e3e5; }
+:root[data-appearance="dark"] .mobile-note-delete-dialog p { color: var(--app-muted); }
+:root[data-appearance="dark"] .mobile-note-delete-dialog .destructive { background: transparent; }
+
 /* Task 3A: Mobile reader chrome overlays the shared rendition without changing its layout. */
 .bookreader-mobile .reader-mobile { height: 100dvh; overscroll-behavior-x: none; touch-action: pan-y; }
 .bookreader-mobile .reader-mobile .reading-stage, .bookreader-mobile .reader-mobile.mode-scroll .reading-stage { width: 100%; height: 100dvh; display: block; padding: 0; overflow: hidden; }

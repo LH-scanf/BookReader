@@ -497,23 +497,24 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     return () => { disposed = true; if (timer) clearTimeout(timer); unlisten?.(); };
   }, [refresh]);
 
-  const saveSummary = async () => {
-    if (!selectedId) return;
+  const saveSummary = async (silent = false) => {
+    if (!selectedId) return false;
     const selectionVersion = selectionVersionRef.current;
     setSavingId("summary");
     try {
       const saved = await persistBookNote(selectedId, summary);
-      if (selectionVersion !== selectionVersionRef.current) return;
+      if (selectionVersion !== selectionVersionRef.current) return false;
       refreshRequestRef.current += 1;
       setNote(saved);
       setSummary(saved.summary);
       summaryDirtyRef.current = false;
-      onMessage("整书总结已保存");
-    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); }
+      if (!silent) onMessage("整书总结已保存");
+      return true;
+    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); return false; }
     finally { if (selectionVersion === selectionVersionRef.current) { setSavingId(null); setLoadingNotes(false); } }
   };
 
-  const saveReflection = async (record: AnnotationRecord) => {
+  const saveReflection = async (record: AnnotationRecord, silent = false) => {
     const selectionVersion = selectionVersionRef.current;
     setSavingId(record.id);
     try {
@@ -526,31 +527,33 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
         chapterHref: record.chapterHref,
         cfiRange: record.cfiRange,
       });
-      if (selectionVersion !== selectionVersionRef.current) return;
+      if (selectionVersion !== selectionVersionRef.current) return false;
       refreshRequestRef.current += 1;
       setAnnotations((current) => current.map((item) => item.id === saved.id ? saved : item));
       setReflectionDrafts((current) => ({ ...current, [saved.id]: saved.reflection }));
       reflectionDirtyRef.current.delete(saved.id);
-      onMessage("感悟已保存");
-    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); }
+      if (!silent) onMessage("感悟已保存");
+      return true;
+    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); return false; }
     finally { if (selectionVersion === selectionVersionRef.current) { setSavingId(null); setLoadingNotes(false); } }
   };
 
-  const deleteRecord = async (record: AnnotationRecord) => {
-    if (!window.confirm("确定删除这条高亮和感悟吗？")) return;
+  const deleteRecord = async (record: AnnotationRecord, options?: { skipConfirmation?: boolean; silent?: boolean }) => {
+    if (!options?.skipConfirmation && !window.confirm("确定删除这条高亮和感悟吗？")) return false;
     setSavingId(record.id);
     const selectionVersion = selectionVersionRef.current;
     try {
       await removeAnnotation(record.bookId, record.id);
-      if (selectionVersion !== selectionVersionRef.current) return;
+      if (selectionVersion !== selectionVersionRef.current) return false;
       refreshRequestRef.current += 1;
       setAnnotations((current) => current.filter((item) => item.id !== record.id));
       reflectionDirtyRef.current.delete(record.id);
       const remaining = sortedAnnotations.filter((item) => item.id !== record.id);
       setSelectedAnnotationId(remaining[0]?.id ?? null);
       if (!remaining.length) setShowSummary(true);
-      onMessage("高亮和感悟已删除");
-    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); }
+      if (!options?.silent) onMessage("高亮和感悟已删除");
+      return true;
+    } catch (reason) { if (selectionVersion === selectionVersionRef.current) onMessage(reason instanceof Error ? reason.message : String(reason)); return false; }
     finally { if (selectionVersion === selectionVersionRef.current) { setSavingId(null); setLoadingNotes(false); } }
   };
 
@@ -581,15 +584,46 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     setSelectedAnnotationId(nextId);
   };
 
+  const updateSummaryDraft = (value: string) => {
+    summaryDirtyRef.current = true;
+    setSummary(value);
+  };
+
+  const discardSummaryDraft = () => {
+    summaryDirtyRef.current = false;
+    setSummary(note?.summary ?? "");
+  };
+
+  const updateReflectionDraft = (record: AnnotationRecord, value: string) => {
+    reflectionDirtyRef.current.add(record.id);
+    setReflectionDrafts((current) => ({ ...current, [record.id]: value }));
+  };
+
+  const discardReflectionDraft = (record: AnnotationRecord) => {
+    reflectionDirtyRef.current.delete(record.id);
+    setReflectionDrafts((current) => ({ ...current, [record.id]: record.reflection }));
+  };
+
   if (getCurrentUiMode() === "mobile") {
     return <MobileNotesWorkspace
       books={books}
       selectedBook={selectedBook}
       annotations={displayedAnnotations}
       summary={summary}
+      savedSummary={note?.summary ?? ""}
+      reflectionDrafts={reflectionDrafts}
       loading={loadingNotes}
+      savingId={savingId}
       onSelectBook={selectBook}
       onOpenBook={() => { if (selectedBook) onOpenQuote(selectedBook, null); }}
+      onOpenQuote={(annotation) => { if (selectedBook) onOpenQuote(selectedBook, annotation.cfiRange); }}
+      onSummaryChange={updateSummaryDraft}
+      onCancelSummary={discardSummaryDraft}
+      onSaveSummary={() => saveSummary(true)}
+      onReflectionChange={updateReflectionDraft}
+      onCancelReflection={discardReflectionDraft}
+      onSaveReflection={(annotation) => saveReflection(annotation, true)}
+      onDeleteAnnotation={(annotation) => deleteRecord(annotation, { skipConfirmation: true, silent: true })}
     />;
   }
 

@@ -174,7 +174,12 @@ export async function removeAnnotation(bookId: string, annotationId: string): Pr
   const now = new Date().toISOString();
   await writeDocuments([{ path, data: { ...record, updatedAt: now, deletedAt: now } }]);
 }
-export async function persistBookNote(_id: string, _summary: string): Promise<BookNote> { return readOnly(); }
+export async function persistBookNote(bookId: string, summary: string): Promise<BookNote> {
+  requireId(bookId); await assertActive(bookId);
+  const record: BookNote = { schemaVersion: 1, bookId, summary: summary.trim(), updatedAt: new Date().toISOString() };
+  await writeDocuments([{ path: `notes/${bookId}.json`, data: record }]);
+  return record;
+}
 export function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob);

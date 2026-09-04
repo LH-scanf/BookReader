@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { activeDeletions, parseLifecycle, type LifecycleOperation } from "../src/library/protocol";
 import { database, writeDocuments, acknowledge, deviceId } from "../src/storage/database";
-import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation, removeAnnotation, loadAnnotations, importEpub } from "../src/library/WebProvider";
+import { loadLibrary, deleteBook, listDeletedBooks, restoreDeletedBook, persistProgress, readBookBytes, saveAnnotation, removeAnnotation, loadAnnotations, importEpub, persistBookNote } from "../src/library/WebProvider";
 import { readFile, storeFile, removeCachedFile } from "../src/storage/files";
 
 const id = "10000000-0000-4000-8000-000000000001";
@@ -94,5 +94,12 @@ describe("local library and durable queue", () => {
     const path = `annotations/${id}/${created.id}.json`; const db = await database();
     expect((await db.get("documents", path))?.data).toMatchObject({ id: created.id, deletedAt: expect.any(String) });
     expect(await db.get("queue", path)).toBeDefined();
+  });
+  it("saves a browser book summary through the existing notes document queue", async () => {
+    await seed();
+    const saved = await persistBookNote(id, "移动端总结");
+    expect(saved).toMatchObject({ schemaVersion: 1, bookId: id, summary: "移动端总结" });
+    expect((await (await database()).get("documents", `notes/${id}.json`))?.data).toMatchObject({ summary: "移动端总结" });
+    expect(await (await database()).get("queue", `notes/${id}.json`)).toBeTruthy();
   });
 });

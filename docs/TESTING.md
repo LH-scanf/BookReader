@@ -113,6 +113,16 @@ iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复�
 | MOBILE-NOTES-PAGE-04 | Reader 点击“查看完整笔记 →” | 保留阅读中的 `notesBookId`，完整笔记页仍选中刚才阅读的图书。 |
 | MOBILE-NOTES-PAGE-05 | Desktop 进入整书笔记 | 保留原顶部工具栏、图书下拉选择、左右 master-detail、总结与感悟编辑、删除和排序行为。 |
 
+## Task 4B/4C：Mobile 完整笔记内容
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-NOTES-PAGE-06 | 查看或编辑读后总结 | 默认仅显示阅读态；编辑时才显示 textarea。保存复用 `persistBookNote` 并静默回阅读态，取消恢复原值，失败显示错误。 |
+| MOBILE-NOTES-PAGE-07 | 查看当前书的摘录 | 默认按正文 CFI 顺序显示为独立轻卡片；卡片有章节、原文、感悟/“+ 添加感悟”、回到原文和 `⋯`，不显示日期或 CFI。 |
+| MOBILE-NOTES-PAGE-08 | 新增或编辑一条感悟 | 一次只展开一条卡片；保存复用 `saveAnnotation` 后回阅读态，取消恢复原值。键盘出现时编辑卡片滚入实际可视区域。 |
+| MOBILE-NOTES-PAGE-09 | 打开 `⋯` 并删除摘录 | Action Sheet 按感悟状态显示“写/编辑感悟”和“删除摘录”；删除使用 Mobile 二次确认，复用 `removeAnnotation`，成功静默移除卡片与数量。 |
+| MOBILE-NOTES-PAGE-10 | 点击“回到原文”、切换图书或滚到最后一张卡 | 回到原文复用既有 `onOpenQuote(book, cfiRange)`；未保存 draft 仍触发既有切书保护；底部导航不遮挡内容。 |
+
 ## Task 3B-3：Mobile Reader 当前书笔记 Bottom Sheet
 
 | 编号 | 操作 | 预期结果 |
