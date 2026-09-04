@@ -1,9 +1,10 @@
 import { openDB, type DBSchema } from "idb";
 import { notifyLibraryChanged } from "../platform";
+import { isMutableSharedDocument } from "../sync/mutableDocuments";
 
 export type DocumentRecord = { path: string; data: unknown };
 export type CachedFile = { path: string; backend: "opfs" | "idb"; key: string; blob?: Blob; size: number; etag?: string };
-export type PendingWrite = { path: string; revision: string; kind: "json" | "file"; data?: unknown; attempts: number; createdAt: string };
+export type PendingWrite = { path: string; revision: string; kind: "json" | "file"; data?: unknown; attempts: number; createdAt: string; baseEtag?: string | null };
 export type RemoteRecord = { path: string; id: string; etag: string; size: number };
 interface LibraryDatabase extends DBSchema {
   documents: { key: string; value: DocumentRecord };
@@ -34,15 +35,19 @@ export async function deviceId() {
   await tx.done;
   return id;
 }
-export function pending(path: string, data?: unknown, kind: "json" | "file" = "json"): PendingWrite {
-  return { path, data, kind, revision: crypto.randomUUID(), attempts: 0, createdAt: new Date().toISOString() };
+export function pending(path: string, data?: unknown, kind: "json" | "file" = "json", baseEtag?: string | null): PendingWrite {
+  return { path, data, kind, revision: crypto.randomUUID(), attempts: 0, createdAt: new Date().toISOString(), ...(baseEtag === undefined ? {} : { baseEtag }) };
 }
 export async function writeDocuments(records: DocumentRecord[]) {
   const db = await database();
-  const tx = db.transaction(["documents", "queue"], "readwrite");
+  const tx = db.transaction(["documents", "queue", "remote"], "readwrite");
   for (const record of records) {
     await tx.objectStore("documents").put(record);
-    await tx.objectStore("queue").put(pending(record.path, record.data));
+    const queued = await tx.objectStore("queue").get(record.path);
+    const baseEtag = isMutableSharedDocument(record.path)
+      ? (queued && "baseEtag" in queued ? queued.baseEtag : (await tx.objectStore("remote").get(record.path))?.etag ?? null)
+      : undefined;
+    await tx.objectStore("queue").put(pending(record.path, record.data, "json", baseEtag));
   }
   await tx.done;
   notifyLibraryChanged();

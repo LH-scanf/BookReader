@@ -25,6 +25,16 @@
 | SYNC-BG-05 | 显式退出账号 | 只清理 pending connect 标记；本地图书、队列及既有账号绑定安全规则保留。 |
 | SYNC-BG-06 | Desktop 应用同步与设置 | 继续使用原 Desktop OneDrive 文件夹模型；本 Task 的 Web/PWA 后台生命周期不改变 Desktop 行为。 |
 
+## Task 5B.1：共享可变文档的条件同步
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| SYNC-MUTABLE-01 | 已同步 annotation 或 BookNote 后连续在本机编辑 | 队列保留最初云端 eTag；服务器版本未变化时，以 `If-Match` 条件更新成功。 |
+| SYNC-MUTABLE-02 | 本机编辑基于 E1，另一设备已将同一 annotation/BookNote 更新为 E2 | 停止自动覆盖，保留本机 queue 与 OneDrive 内容；不采用 Last Write Wins。 |
+| SYNC-MUTABLE-03 | annotation tombstone 删除 | 与编辑相同地使用条件更新；不能静默删除另一设备已更新的版本。 |
+| SYNC-MUTABLE-04 | 旧 queue 无 base eTag 或上传响应丢失 | 内容相同则确认完成；内容不同且无法证明基线时保留冲突，不静默覆盖。 |
+| SYNC-MUTABLE-05 | metadata/import/cover/lifecycle 与 per-device progress | 前者继续不可变 fail-closed；progress 保持 device-owned replace，不套共享文档并发规则。 |
+
 ## Task 0A：端侧 shell 选择与回归
 
 | 编号 | 操作 | 预期结果 |

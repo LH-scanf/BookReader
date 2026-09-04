@@ -130,11 +130,11 @@ export class GraphClient {
     if (item.size !== undefined && size !== item.size) throw new Error("下载未完成，未写入缓存");
     return { blob: new Blob(chunks, { type: item.file?.mimeType ?? "application/octet-stream" }), item };
   }
-  async upload(parentId: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail"): Promise<DriveItem> {
-    // Each writable shared object is immutable (lifecycle/import) or owned by this device (progress).
+  async upload(parentId: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail", ifMatch?: string): Promise<DriveItem> {
+    // Imports are immutable, progress is device-owned, and shared documents use a caller-supplied If-Match.
     // Small JSON and bounded EPUB files use PUT; the import marker is sent last by the engine.
     return this.json(`/me/drive/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:/content?@microsoft.graph.conflictBehavior=${conflict}`, {
-      method: "PUT", body: blob, headers: { "Content-Type": blob.type || "application/octet-stream" },
+      method: "PUT", body: blob, headers: { "Content-Type": blob.type || "application/octet-stream", ...(ifMatch ? { "If-Match": ifMatch } : {}) },
     });
   }
 }

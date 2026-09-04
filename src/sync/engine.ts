@@ -6,7 +6,8 @@ import { assertActive, MAX_EPUB_BYTES } from "../library/WebProvider";
 import { notifyLibraryChanged } from "../platform";
 import { GraphClient, GraphError, type DriveItem } from "./graph";
 import { assertSyncAllowed } from "./experimentGate";
-import { SyncActionRequiredError } from "./errors";
+import { SyncActionRequiredError, SyncConflictError } from "./errors";
+import { isMutableSharedDocument } from "./mutableDocuments";
 
 export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
@@ -156,6 +157,10 @@ export async function synchronize(graph: GraphClient) {
   const queue = await db.getAll("queue");
   const priority = (path: string) => path.startsWith("lifecycle/") ? 0 : path.endsWith("metadata.json") ? 3 : path.startsWith("progress/") ? 2 : 1;
   queue.sort((a, b) => priority(a.path) - priority(b.path) || a.path.localeCompare(b.path));
+  const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry: unknown) => {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) return Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b)));
+    return entry;
+  });
   for (const write of queue) {
     if ((await db.get("queue", write.path))?.revision !== write.revision) continue;
     if (!acceptedPath(write.path)) throw new Error("拒绝上传书库协议之外的路径");
@@ -167,34 +172,40 @@ export async function synchronize(graph: GraphClient) {
     }
     const blob = write.kind === "file" ? await readFile(write.path) : new Blob([JSON.stringify(write.data)], { type: "application/json" });
     if (!blob) throw new Error("待上传文件缓存缺失，已停止上传；请勿清理站点数据");
-    // A previous upload may have succeeded even if its response was lost. Never
-    // overwrite an existing imported file or immutable operation on retry.
+    // A previous upload may have succeeded even if its response was lost. Immutable
+    // paths always fail closed; annotations and book notes use their saved base eTag.
     const existing = entries.find((entry) => entry.path === write.path);
+    const mutable = isMutableSharedDocument(write.path);
     if (existing && !write.path.startsWith("progress/")) {
       const downloaded = await graph.download(existing.id, write.kind === "file" ? MAX_EPUB_BYTES : 5 * 1024 * 1024);
-      const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry: unknown) => {
-        if (entry && typeof entry === "object" && !Array.isArray(entry)) return Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b)));
-        return entry;
-      });
       const same = write.kind === "json"
         ? canonical(JSON.parse(await downloaded.blob.text())) === canonical(write.data)
         : blob.size === downloaded.blob.size && await digest(blob) === await digest(downloaded.blob);
-      if (!same) throw new Error(`云端文件与本机待上传内容冲突：${write.path}。已停止自动覆盖，两份内容均保留，请先备份并核对`);
-      await acknowledge(write.path, write.revision); continue;
+      if (same) { await acknowledge(write.path, write.revision); continue; }
+      // An old queue record predating baseEtag cannot prove it is safe to replace.
+      if (!mutable || write.baseEtag === undefined || write.baseEtag === null || existing.etag !== write.baseEtag) throw new SyncConflictError(write.path);
     }
+    // A mutable document based on a now-missing server version is also ambiguous.
+    if (!existing && mutable && write.baseEtag) throw new SyncConflictError(write.path);
     const parts = write.path.split("/"); const name = parts.pop()!;
     try {
       // Invalidate before ANY cloud mutation, including parent creation and an
       // upload whose response can be lost. The next retry must observe the server.
       await db.delete("settings", INVENTORY_CHECKPOINT);
-      const item = await graph.upload(await parent(parts.join("/")), name, blob, write.path.startsWith("progress/") ? "replace" : "fail");
+      const item = await graph.upload(await parent(parts.join("/")), name, blob,
+        write.path.startsWith("progress/") || (mutable && !!existing) ? "replace" : "fail",
+        mutable && existing ? write.baseEtag ?? undefined : undefined);
       await db.put("remote", { path: write.path, id: item.id, etag: item.eTag, size: item.size ?? blob.size });
       await acknowledge(write.path, write.revision);
     } catch (error) {
       const update = db.transaction("queue", "readwrite"); const current = await update.store.get(write.path);
       if (current?.revision === write.revision) await update.store.put({ ...current, attempts: current.attempts + 1 });
       await update.done;
-      if (error instanceof GraphError && error.status === 409) throw new Error(`云端出现同名文件冲突：${write.path}。本机内容与待上传队列已保留，请重新同步核对`);
+      if (error instanceof GraphError && error.status === 412) throw new SyncConflictError(write.path);
+      if (error instanceof GraphError && error.status === 409) {
+        if (mutable) throw new SyncConflictError(write.path);
+        throw new Error(`云端出现同名文件冲突：${write.path}。本机内容与待上传队列已保留，请重新同步核对`);
+      }
       throw error;
     }
   }

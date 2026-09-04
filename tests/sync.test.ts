@@ -13,6 +13,12 @@ const metaPath = `books/${bookId}/metadata.json`;
 const epubPath = `books/${bookId}/book.epub`;
 const progressPath = `progress/${bookId}/${device}.json`;
 const meta = { schemaVersion: 1, id: bookId, title: "云端测试", author: "作者", importedAt: "2026-08-26T00:00:00Z", sourceFileName: "a.epub", coverFileName: null };
+const annotationId = "30000000-0000-4000-8000-000000000001";
+const annotationPath = `annotations/${bookId}/${annotationId}.json`;
+const annotation = (reflection: string, deletedAt: string | null = null) => ({ schemaVersion: 1, id: annotationId, bookId,
+  quote: "摘录", reflection, cfiRange: "epubcfi(/6/2)", chapterTitle: "第一章", chapterHref: "chapter.xhtml", createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", deletedAt });
+const notePath = `notes/${bookId}.json`;
+const bookNote = (summary: string) => ({ schemaVersion: 1, bookId, summary, updatedAt: "2026-08-26T00:00:00Z" });
 it("blocks sync during the persisted permission experiment before acquiring auth or sending requests", async () => {
   const db = await database(); await db.put("settings", true, "permissionExperimentPaused"); await db.put("settings", true, "syncConsent");
   const auth = vi.spyOn(microsoftAuth, "requireAccount"); const fetch = vi.spyOn(globalThis, "fetch");
@@ -81,15 +87,84 @@ function fakeGraph() {
       return [...children.values()];
     }),
     download: vi.fn(async (id: string) => { const entry = remote.get(id)!; return { item: entry.item, blob: entry.blob }; }),
-    upload: vi.fn(async (parent: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail") => {
+    upload: vi.fn(async (parent: string, name: string, blob: Blob, conflict: "fail" | "replace" = "fail", ifMatch?: string) => {
       const path = `${parent.replace(/^root\/?/, "")}/${name}`.replace(/^\//, ""); uploaded.push(path);
+      if (ifMatch && remote.get(path)?.item.eTag !== ifMatch) throw new GraphError(412, 60);
       if (conflict === "fail" && remote.has(path)) throw new GraphError(409, 60);
       const item: DriveItem = { id: path, name, file: {}, eTag: crypto.randomUUID(), size: blob.size }; remote.set(path, { item, blob }); return item;
     }),
   };
-  const add = (path: string, data: unknown) => { const blob = new Blob([JSON.stringify(data)]); remote.set(path, { item: { id: path, name: path.split("/").pop()!, eTag: crypto.randomUUID(), file: {}, size: blob.size }, blob }); };
+  const add = (path: string, data: unknown) => { const blob = new Blob([JSON.stringify(data)]); const entry = { item: { id: path, name: path.split("/").pop()!, eTag: crypto.randomUUID(), file: {}, size: blob.size }, blob }; remote.set(path, entry); return entry; };
   return { graph, client: graph as unknown as GraphClient, add, remote, uploaded };
 }
+async function rememberRemote(path: string, entry: { item: DriveItem }) {
+  await (await database()).put("remote", { path, id: entry.item.id, etag: entry.item.eTag, size: entry.item.size ?? 0 });
+}
+it("creates a new annotation with the immutable-create guard", async () => {
+  const { client, graph } = fakeGraph();
+  await writeDocuments([{ path: annotationPath, data: annotation("新感悟") }]);
+  await synchronize(client);
+  expect(graph.upload).toHaveBeenLastCalledWith(expect.any(String), `${annotationId}.json`, expect.any(Blob), "fail", undefined);
+});
+it("conditionally replaces a shared annotation from its original remote eTag", async () => {
+  const { client, graph, add, remote } = fakeGraph(); const initial = add(annotationPath, annotation("旧感悟"));
+  await rememberRemote(annotationPath, initial);
+  await writeDocuments([{ path: annotationPath, data: annotation("第一次编辑") }]);
+  const first = await (await database()).get("queue", annotationPath);
+  await writeDocuments([{ path: annotationPath, data: annotation("第二次编辑") }]);
+  const second = await (await database()).get("queue", annotationPath);
+  expect(first?.baseEtag).toBe(initial.item.eTag);
+  expect(second?.baseEtag).toBe(initial.item.eTag);
+  await synchronize(client);
+  expect(graph.upload).toHaveBeenLastCalledWith(expect.any(String), `${annotationId}.json`, expect.any(Blob), "replace", initial.item.eTag);
+  expect(JSON.parse(await remote.get(annotationPath)!.blob.text())).toMatchObject({ reflection: "第二次编辑" });
+});
+it("keeps a shared annotation queue entry when another device changed its base version", async () => {
+  const { client, add } = fakeGraph(); const initial = add(annotationPath, annotation("云端 E1"));
+  await rememberRemote(annotationPath, initial); await writeDocuments([{ path: annotationPath, data: annotation("本机编辑") }]);
+  add(annotationPath, annotation("云端 E2"));
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+  expect((await (await database()).get("queue", annotationPath))?.baseEtag).toBe(initial.item.eTag);
+});
+it("uses the same conditional update for annotation tombstones and book notes", async () => {
+  const { client, graph, add, remote } = fakeGraph();
+  const oldAnnotation = add(annotationPath, annotation("旧感悟")); const oldNote = add(notePath, bookNote("旧总结"));
+  await rememberRemote(annotationPath, oldAnnotation); await rememberRemote(notePath, oldNote);
+  await writeDocuments([{ path: annotationPath, data: annotation("旧感悟", "2026-09-04T00:00:00Z") }, { path: notePath, data: bookNote("新总结") }]);
+  await synchronize(client);
+  expect(graph.upload).toHaveBeenCalledWith(expect.any(String), `${annotationId}.json`, expect.any(Blob), "replace", oldAnnotation.item.eTag);
+  expect(graph.upload).toHaveBeenCalledWith(expect.any(String), `${bookId}.json`, expect.any(Blob), "replace", oldNote.item.eTag);
+  expect(JSON.parse(await remote.get(annotationPath)!.blob.text())).toMatchObject({ deletedAt: "2026-09-04T00:00:00Z" });
+  expect(JSON.parse(await remote.get(notePath)!.blob.text())).toMatchObject({ summary: "新总结" });
+});
+it("does not replace a concurrently changed book note", async () => {
+  const { client, add } = fakeGraph(); const initial = add(notePath, bookNote("云端 E1"));
+  await rememberRemote(notePath, initial); await writeDocuments([{ path: notePath, data: bookNote("本机编辑") }]);
+  add(notePath, bookNote("云端 E2"));
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+  expect(await (await database()).get("queue", notePath)).toBeDefined();
+});
+it("acknowledges a same-content shared-document retry and never overwrites an old queue without a base eTag", async () => {
+  const same = fakeGraph(); const original = same.add(annotationPath, annotation("相同内容"));
+  await rememberRemote(annotationPath, original); await writeDocuments([{ path: annotationPath, data: annotation("相同内容") }]);
+  // Simulate a successful conditional PUT whose response was lost.
+  same.add(annotationPath, annotation("相同内容"));
+  await synchronize(same.client); expect(await (await database()).get("queue", annotationPath)).toBeUndefined();
+
+  const legacy = fakeGraph(); const remote = legacy.add(annotationPath, annotation("云端旧版"));
+  await rememberRemote(annotationPath, remote); await (await database()).put("queue", pending(annotationPath, annotation("本机新版")));
+  await expect(synchronize(legacy.client)).rejects.toThrow("冲突");
+  expect(await (await database()).get("queue", annotationPath)).toBeDefined();
+});
+it("turns an If-Match failure into a preserved shared-document conflict", async () => {
+  const { client, graph, add, remote } = fakeGraph(); const initial = add(annotationPath, annotation("云端 E1"));
+  await rememberRemote(annotationPath, initial); await writeDocuments([{ path: annotationPath, data: annotation("本机编辑") }]);
+  const upload = graph.upload.getMockImplementation()!;
+  graph.upload.mockImplementationOnce(async (...args) => { add(annotationPath, annotation("并发 E2")); return upload(...args); });
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+  expect(JSON.parse(await remote.get(annotationPath)!.blob.text())).toMatchObject({ reflection: "并发 E2" });
+  expect(await (await database()).get("queue", annotationPath)).toBeDefined();
+});
 it("uploads EPUB before metadata and retries without dropping queued writes", async () => {
   const { client, graph, uploaded } = fakeGraph(); const db = await database();
   await storeFile(epubPath, new Blob(["PK EPUB"])); await db.put("queue", pending(epubPath, undefined, "file"));
@@ -294,8 +369,10 @@ it("uses server-side conflict rejection by default and explicit replacement only
   const client = new GraphClient(async () => "secret", request);
   await client.upload("parent", "a.json", new Blob(["a"]));
   await client.upload("parent", "a.json", new Blob(["b"]), "replace");
+  await client.upload("parent", "a.json", new Blob(["c"]), "replace", '"known-etag"');
   expect(new URL(String(request.mock.calls[0][0])).searchParams.get("@microsoft.graph.conflictBehavior")).toBe("fail");
   expect(new URL(String(request.mock.calls[1][0])).searchParams.get("@microsoft.graph.conflictBehavior")).toBe("replace");
+  expect((request.mock.calls[2][1]?.headers as Record<string, string>)["If-Match"]).toBe('"known-etag"');
   expect(request.mock.calls[0][1]?.redirect).toBe("error");
 });
 it.each(["missing", "renamed", "moved"])("does not create a replacement when the pinned library is %s", async (change) => {
