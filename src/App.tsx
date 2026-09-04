@@ -27,6 +27,7 @@ import { DesktopAppShell } from "./desktop/DesktopAppShell";
 import { MobileLibraryView } from "./mobile/MobileLibraryView";
 import { MobileAppShell } from "./mobile/MobileAppShell";
 import { MobileNotesWorkspace } from "./mobile/MobileNotesWorkspace";
+import { MobileSettingsView } from "./mobile/MobileSettingsView";
 import { recordMobileBookOpen } from "./mobile/mobile-recent-books";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
@@ -695,6 +696,7 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
 }
 
 function SettingsView({ libraryDir, busy, onSelectLibrary, appearance, onAppearanceChange }: { libraryDir: string | null; busy: boolean; onSelectLibrary: () => void; appearance: Appearance; onAppearanceChange: (appearance: Appearance) => void }) {
+  if (getCurrentUiMode() === "mobile") return <MobileSettingsView appearance={appearance} onAppearanceChange={onAppearanceChange} />;
   return (
     <div className="settings-page">
       <p className="eyebrow">BookReader</p><h1>设置</h1>

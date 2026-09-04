@@ -35,6 +35,7 @@ Task 0A 只建立顶层边界，不是整个 UI 已完全隔离。后续 [Mobile
 | `src/ui/ui-mode.ts` | 集中判断 Desktop / Mobile App shell 模式，并提供 React 包装 |
 | `src/desktop/`、`src/mobile/` | DesktopAppShell / MobileAppShell 与后续各端专属 CSS 边界 |
 | `src/mobile/mobile-recent-books.ts` | Mobile 最近打开顺序的本机 UI 状态；不写入同步书库。 |
+| `src/mobile/MobileSettingsView.tsx` | Mobile 设置首页与同步/存储/外观/关于二级页面；只映射既有认证和同步状态并调用既有动作。 |
 | `src/reader/ui/MobileReaderChrome.tsx` | Mobile Reader 的 overlay 控制外壳；继续复用 `EpubReader` 的渲染、CFI 和状态能力。 |
 | `src/EpubReader.tsx` | EPUB 渲染、翻页/滚动、目录、主题、脚注、搜索、高亮、进度保存及同步定位仲裁 |
 | `src/library-api.ts` | 平台无关入口，按环境加载 LibraryProvider |

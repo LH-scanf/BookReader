@@ -123,6 +123,16 @@ iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复�
 | MOBILE-NOTES-PAGE-09 | 打开 `⋯` 并删除摘录 | Action Sheet 按感悟状态显示“写/编辑感悟”和“删除摘录”；删除使用 Mobile 二次确认，复用 `removeAnnotation`，成功静默移除卡片与数量。 |
 | MOBILE-NOTES-PAGE-10 | 点击“回到原文”、切换图书或滚到最后一张卡 | 回到原文复用既有 `onOpenQuote(book, cfiRange)`；未保存 draft 仍触发既有切书保护；底部导航不遮挡内容。 |
 
+## Task 5A：Mobile 设置首页
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-SETTINGS-01 | 在 Mobile 打开设置首页 | 仅显示同步、数据与存储、外观、关于四组轻量入口；不常驻展示 Graph、权限、token、AppFolder、诊断或工程存储术语。 |
+| MOBILE-SETTINGS-02 | 分别处于已连接、同步中、离线、授权失败与未连接状态 | OneDrive 行映射为“已连接 / 正在同步 / 离线 / 需要重新连接 / 未连接”，不将账号邮箱放在首页主体。 |
+| MOBILE-SETTINGS-03 | 打开同步管理 | 二级页提供账号、自动同步开关、连接/重新连接、立即同步和高级同步入口；不修改既有认证或同步动作。 |
+| MOBILE-SETTINGS-04 | 打开数据与存储、回收站、外观、更新与关于 | 离线图书/本地数据保护、既有回收站、浅色/深色、既有 PWA 更新动作和简洁关于页均可用。 |
+| MOBILE-SETTINGS-05 | 在生产 Mobile 与 DEV Mobile 检查高级同步 | 生产不显示诊断；DEV 可从高级同步进入保留的 CloudSettings/权限诊断。Desktop Settings 与 CloudSettings 布局、控制和诊断保持原样。 |
+
 ## Task 3B-3：Mobile Reader 当前书笔记 Bottom Sheet
 
 | 编号 | 操作 | 预期结果 |
