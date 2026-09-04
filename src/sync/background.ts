@@ -65,7 +65,7 @@ export async function coordinateBackgroundSync(
   const eligible = shouldRunBackgroundSync({
     online: deps.online(), visible: deps.visible(), startup, account: !!account,
     consent: !!consent, enabled: !!enabled, paused: !!paused,
-    requiresAction: !!deps.syncSnapshot().requiresAction,
+    requiresAction: !!deps.syncSnapshot().requiresAction || !!deps.syncSnapshot().conflict,
   });
   if (!eligible) return false;
   await deps.syncNow();

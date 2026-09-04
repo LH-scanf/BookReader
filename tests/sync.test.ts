@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { database, writeDocuments, pending } from "../src/storage/database";
 import { storeFile } from "../src/storage/files";
-import { synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
+import { getSyncConflict, resolveSyncConflict, synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
 import * as microsoftAuth from "../src/auth/microsoft";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
 import { runGraphDiagnostics, type DiagnosticEntry } from "../src/sync/diagnostics";
@@ -164,6 +164,66 @@ it("turns an If-Match failure into a preserved shared-document conflict", async 
   await expect(synchronize(client)).rejects.toThrow("冲突");
   expect(JSON.parse(await remote.get(annotationPath)!.blob.text())).toMatchObject({ reflection: "并发 E2" });
   expect(await (await database()).get("queue", annotationPath)).toBeDefined();
+});
+it("reads a legacy annotation conflict from the queued local version and the current OneDrive version", async () => {
+  const { client, add } = fakeGraph(); const remote = add(annotationPath, annotation("OneDrive 感悟"));
+  await rememberRemote(annotationPath, remote); await (await database()).put("documents", { path: metaPath, data: meta });
+  await (await database()).put("queue", pending(annotationPath, annotation("本机感悟")));
+  const conflict = await getSyncConflict(annotationPath, client);
+  expect(conflict).toMatchObject({ kind: "annotation", bookTitle: "云端测试", local: { reflection: "本机感悟" }, remote: { reflection: "OneDrive 感悟" } });
+});
+it("resolves keep-local by rebasing to the current eTag before conditional upload", async () => {
+  const { client, graph, add } = fakeGraph(); const remote = add(annotationPath, annotation("OneDrive E2"));
+  await rememberRemote(annotationPath, remote); await (await database()).put("queue", pending(annotationPath, annotation("本机版本")));
+  const continued = vi.fn(async () => undefined);
+  await resolveSyncConflict(annotationPath, "local", { graph: client, continueSync: continued });
+  expect((await (await database()).get("queue", annotationPath))?.baseEtag).toBe(remote.item.eTag);
+  expect(continued).toHaveBeenCalledOnce();
+  await synchronize(client);
+  expect(graph.upload).toHaveBeenLastCalledWith(expect.any(String), `${annotationId}.json`, expect.any(Blob), "replace", remote.item.eTag);
+});
+it("reopens the conflict if OneDrive changes after keep-local was confirmed", async () => {
+  const { client, graph, add, remote } = fakeGraph(); const e2 = add(annotationPath, annotation("OneDrive E2"));
+  await rememberRemote(annotationPath, e2); await (await database()).put("queue", pending(annotationPath, annotation("本机版本")));
+  await resolveSyncConflict(annotationPath, "local", { graph: client, continueSync: vi.fn(async () => undefined) });
+  const upload = graph.upload.getMockImplementation()!;
+  graph.upload.mockImplementationOnce(async (...args) => { add(annotationPath, annotation("OneDrive E3")); return upload(...args); });
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+  expect(JSON.parse(await remote.get(annotationPath)!.blob.text())).toMatchObject({ reflection: "OneDrive E3" });
+});
+it("resolves keep-OneDrive by replacing only the current local document and queue entry", async () => {
+  const { client, add } = fakeGraph(); const remote = add(annotationPath, annotation("云端保留"));
+  await rememberRemote(annotationPath, remote); const db = await database();
+  await db.put("documents", { path: annotationPath, data: annotation("本机覆盖") }); await db.put("queue", pending(annotationPath, annotation("本机覆盖")));
+  const continued = vi.fn(async () => undefined);
+  await resolveSyncConflict(annotationPath, "remote", { graph: client, continueSync: continued });
+  expect(await db.get("queue", annotationPath)).toBeUndefined();
+  expect((await db.get("documents", annotationPath))?.data).toMatchObject({ reflection: "云端保留" });
+  expect((await db.get("remote", annotationPath))?.etag).toBe(remote.item.eTag);
+  expect(continued).toHaveBeenCalledOnce();
+});
+it("uses the same resolver for annotation tombstones and book-note conflicts", async () => {
+  const annotationGraph = fakeGraph(); const remoteAnnotation = annotationGraph.add(annotationPath, annotation("云端", null));
+  await rememberRemote(annotationPath, remoteAnnotation); await (await database()).put("queue", pending(annotationPath, annotation("本机", "2026-09-04T00:00:00Z")));
+  expect((await getSyncConflict(annotationPath, annotationGraph.client)).local.deletedAt).toBe("2026-09-04T00:00:00Z");
+  const noteGraph = fakeGraph(); const remoteNote = noteGraph.add(notePath, bookNote("云端总结"));
+  await rememberRemote(notePath, remoteNote); await (await database()).put("queue", pending(notePath, bookNote("本机总结")));
+  expect(await getSyncConflict(notePath, noteGraph.client)).toMatchObject({ kind: "book-note", local: { summary: "本机总结" }, remote: { summary: "云端总结" } });
+});
+it("resolving one shared conflict leaves a later conflict for the next sync pass", async () => {
+  const { client, add } = fakeGraph(); const first = add(annotationPath, annotation("云端第一条"));
+  const secondId = "40000000-0000-4000-8000-000000000001";
+  const secondPath = `annotations/${bookId}/${secondId}.json`;
+  const second = add(secondPath, { ...annotation("云端第二条"), id: secondId });
+  await rememberRemote(annotationPath, first); await rememberRemote(secondPath, second);
+  const db = await database(); await db.put("queue", pending(annotationPath, annotation("本机第一条"))); await db.put("queue", pending(secondPath, { ...annotation("本机第二条"), id: secondId }));
+  await resolveSyncConflict(annotationPath, "remote", { graph: client, continueSync: vi.fn(async () => undefined) });
+  expect(await db.get("queue", annotationPath)).toBeUndefined();
+  await expect(synchronize(client)).rejects.toThrow("冲突");
+  expect(await db.get("queue", secondPath)).toBeDefined();
+});
+it("never exposes immutable metadata to the mutable conflict resolver", async () => {
+  await expect(resolveSyncConflict(metaPath, "local", { graph: fakeGraph().client, continueSync: vi.fn(async () => undefined) })).rejects.toThrow("不能在此处自动处理");
 });
 it("uploads EPUB before metadata and retries without dropping queued writes", async () => {
   const { client, graph, uploaded } = fakeGraph(); const db = await database();

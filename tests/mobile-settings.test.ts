@@ -9,6 +9,7 @@ describe("mobile settings sync status", () => {
     expect(resolveMobileSyncState({ online: true, account: true, connected: true, status: { phase: "syncing", message: "" }, lastSyncAt: "" })).toMatchObject({ kind: "syncing", label: "正在同步" });
     expect(resolveMobileSyncState({ online: false, account: true, connected: true, status: idle, lastSyncAt: "" })).toMatchObject({ kind: "offline", label: "离线" });
     expect(resolveMobileSyncState({ online: true, account: true, connected: true, status: { phase: "error", message: "", requiresAction: true }, lastSyncAt: "" })).toMatchObject({ kind: "reconnect", label: "需要重新连接" });
+    expect(resolveMobileSyncState({ online: true, account: true, connected: true, status: { phase: "error", message: "", conflict: { path: "annotations/x/y.json", kind: "annotation" } }, lastSyncAt: "" })).toMatchObject({ kind: "reconnect", label: "需要处理" });
     expect(resolveMobileSyncState({ online: true, account: false, connected: false, status: idle, lastSyncAt: "" })).toMatchObject({ kind: "disconnected", label: "未连接" });
   });
 });

@@ -35,6 +35,16 @@
 | SYNC-MUTABLE-04 | 旧 queue 无 base eTag 或上传响应丢失 | 内容相同则确认完成；内容不同且无法证明基线时保留冲突，不静默覆盖。 |
 | SYNC-MUTABLE-05 | metadata/import/cover/lifecycle 与 per-device progress | 前者继续不可变 fail-closed；progress 保持 device-owned replace，不套共享文档并发规则。 |
 
+## Task 5B.2：共享文档冲突解决
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| SYNC-RESOLVE-01 | Mobile 同步页发现 annotation 或 BookNote 冲突 | 显示“同步需要处理”，进入冲突页后只显示安全的本机/OneDrive 内容摘要，不显示 UUID、path、eTag、Graph URL 或 token。 |
+| SYNC-RESOLVE-02 | 选择“保留本机版本”并确认 | 重新读取远端 eTag，更新当前 queue 的 baseEtag，随后以 `If-Match` 正常同步；若此后远端再变更，重新进入冲突。 |
+| SYNC-RESOLVE-03 | 选择“保留 OneDrive 版本”并确认 | 仅替换当前文档、删除当前 queue，并更新当前 remote metadata；其他 queue 项不受影响。 |
+| SYNC-RESOLVE-04 | annotation tombstone 冲突 | 明确显示“已删除这条摘录”与另一版本；不自动决定删除或恢复。 |
+| SYNC-RESOLVE-05 | 解决第一条后仍有第二条共享文档冲突 | 自动继续一次同步，并显示下一条冲突；immutable metadata/import/cover/lifecycle 不提供 resolver。 |
+
 ## Task 0A：端侧 shell 选择与回归
 
 | 编号 | 操作 | 预期结果 |

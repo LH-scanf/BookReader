@@ -29,6 +29,7 @@ SQLite/IndexedDB 等本地索引和浏览器/应用偏好不属于同步书库�
 - **每设备进度。** 阅读位置使用 EPUB CFI，并同时保存章节和百分比作为辅助信息。设备 ID 来自进度文件名；本机写入回流只刷新快照，不应把阅读器拉回旧位置。其他设备较新的有效记录可用于续读或定位。
 - **软删除。** 删除与恢复通过 `lifecycle/` 中的不可变操作记录传播；删除的书进入回收站，不以日常操作永久清除书籍、笔记或记录。相应 tombstone 必须随同步传播。
 - **Web 同步。** Web 使用浏览器本地存储、文件缓存和持久队列承接离线变更；登录/退出或短暂 Graph 失败不得直接清空本机书库或未完成队列。共享的 `annotations/` 与 `notes/` 修改在队列中保留本地编辑所基于的云端 eTag，并以 Graph `If-Match` 条件更新；真正的并发修改保留两端内容并停止自动覆盖。该本机队列元数据不属于云端 schema。`progress/` 仍是设备拥有的 replace 语义；导入、metadata、cover 和 lifecycle 仍是不可变的 fail-closed 路径。
+- **共享文档冲突。** 对 `annotations/` 或 `notes/` 的历史队列或真实并发冲突，用户可明确选择保留本机版本或保留 OneDrive 版本。保留本机时会重新读取 OneDrive 的最新 eTag，再由正常 `If-Match` 上传；保留 OneDrive 时仅以验证后的远端文档替换该路径的本地文档并删除该路径 queue。不会自动选择任一版本，也不会影响其他待同步项目。
 - **OneDrive AppFolder。** Web 通过 Microsoft Graph 的应用专用目录访问 OneDrive，在其下使用 `BookReaderLibrary/`；正式同步只请求委托权限 `Files.ReadWrite.AppFolder`，不依赖全盘文件权限。
 - **桌面 OneDrive 文件夹。** Desktop 选择已由 OneDrive 客户端同步到本机的书库目录，由客户端负责上传/下载文件；桌面应用监听目录变化并刷新书库。
 - **账号绑定。** 一个浏览器站点的本机书库绑定一个 Microsoft 账号和书库 ID。退出登录保留本机缓存与队列；不得静默把已有书库改绑到另一个账号上传。账号迁移流程待确认。

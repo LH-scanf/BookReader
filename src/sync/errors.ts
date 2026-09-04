@@ -8,7 +8,7 @@ export class SyncActionRequiredError extends Error {
 
 /** A conditional write found a different shared document version on OneDrive. */
 export class SyncConflictError extends Error {
-  constructor(path: string) {
+  constructor(public path: string, public kind: import("./mutableDocuments").MutableDocumentKind) {
     super(`云端文件与本机待上传内容冲突：${path}。已停止自动覆盖，两份内容均保留，请先备份并核对`);
     this.name = "SyncConflictError";
   }

@@ -7,14 +7,15 @@ import { notifyLibraryChanged } from "../platform";
 import { GraphClient, GraphError, type DriveItem } from "./graph";
 import { assertSyncAllowed } from "./experimentGate";
 import { SyncActionRequiredError, SyncConflictError } from "./errors";
-import { isMutableSharedDocument } from "./mutableDocuments";
+import { isMutableSharedDocument, mutableDocumentKind, type MutableDocumentKind } from "./mutableDocuments";
 
-export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean };
+export type SyncConflictSummary = { path: string; kind: MutableDocumentKind };
+export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean; conflict?: SyncConflictSummary };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
 const listeners = new Set<() => void>();
 export const syncSnapshot = () => status;
 export function subscribeSync(callback: () => void) { listeners.add(callback); return () => { listeners.delete(callback); }; }
-function report(phase: SyncStatus["phase"], message: string, requiresAction = false) { status = { phase, message, requiresAction }; listeners.forEach((fn) => fn()); }
+function report(phase: SyncStatus["phase"], message: string, requiresAction = false, conflict?: SyncConflictSummary) { status = { phase, message, requiresAction, conflict }; listeners.forEach((fn) => fn()); }
 let running: Promise<void> | undefined;
 let retryAt = 0;
 export function syncNow() {
@@ -35,8 +36,9 @@ export function syncNow() {
   })().catch((error: unknown) => {
     if (error instanceof GraphError && [429, 503].includes(error.status)) retryAt = Date.now() + error.retryAfter * 1000;
     const requiresAction = error instanceof SyncActionRequiredError || (error instanceof GraphError && [401, 403].includes(error.status));
+    const conflict = error instanceof SyncConflictError ? { path: error.path, kind: error.kind } : undefined;
     report("error", (error instanceof Error ? error.message : "同步失败，本机数据已保留")
-      + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction);
+      + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction, conflict);
     throw error;
   }).finally(() => { running = undefined; });
   return running;
@@ -106,6 +108,65 @@ function validateDocument(path: string, value: unknown) {
     if (parts[0] === "notes" && typeof record.summary !== "string") throw new Error("云端整书笔记无效");
     if (parts[0] === "annotations" && (record.id !== parts[2].slice(0, -5) || !["quote", "reflection", "cfiRange", "chapterTitle", "chapterHref"].every((key) => typeof record[key] === "string"))) throw new Error("云端批注无效");
   }
+}
+export type SyncConflictDetail = {
+  path: string; kind: MutableDocumentKind; bookId: string; bookTitle: string; annotationId?: string;
+  local: { quote?: string; reflection?: string; chapterTitle?: string; updatedAt?: string; deletedAt?: string | null; summary?: string };
+  remote: { quote?: string; reflection?: string; chapterTitle?: string; updatedAt?: string; deletedAt?: string | null; summary?: string };
+};
+type MutableConflictRecord = { write: import("../storage/database").PendingWrite; remote: RemoteRecord; data: unknown };
+function conflictBookId(path: string) { return path.startsWith("notes/") ? path.slice("notes/".length, -".json".length) : path.split("/")[1]; }
+function conflictVersion(kind: MutableDocumentKind, value: unknown) {
+  const record = value as Record<string, unknown>;
+  return kind === "annotation"
+    ? { quote: record.quote as string, reflection: record.reflection as string, chapterTitle: record.chapterTitle as string, updatedAt: record.updatedAt as string, deletedAt: record.deletedAt as string | null | undefined }
+    : { summary: record.summary as string, updatedAt: record.updatedAt as string };
+}
+async function readMutableConflict(path: string, graph: GraphClient): Promise<MutableConflictRecord> {
+  const kind = mutableDocumentKind(path);
+  if (!kind) throw new Error("该同步冲突不能在此处自动处理");
+  const db = await database(); const write = await db.get("queue", path);
+  if (!write || write.kind !== "json") throw new Error("本机待同步修改已变化，请返回后重新查看冲突");
+  validateDocument(path, write.data);
+  const known = await db.get("remote", path);
+  if (!known) throw new Error("无法找到 OneDrive 当前版本；请重新同步后再处理");
+  const downloaded = await graph.download(known.id, 5 * 1024 * 1024);
+  const data: unknown = JSON.parse(await downloaded.blob.text()); validateDocument(path, data);
+  const after = await graph.item(known.id);
+  if (after.eTag !== downloaded.item.eTag) throw new Error("OneDrive 版本正在变化，请重新查看冲突");
+  return { write, remote: { path, id: after.id, etag: after.eTag, size: after.size ?? downloaded.item.size ?? 0 }, data };
+}
+export async function getSyncConflict(path: string, graph: GraphClient = new GraphClient()): Promise<SyncConflictDetail> {
+  const kind = mutableDocumentKind(path);
+  if (!kind) throw new Error("该同步冲突不能在此处自动处理");
+  const { write, data } = await readMutableConflict(path, graph); const db = await database(); const bookId = conflictBookId(path);
+  const metadata = await db.get("documents", `books/${bookId}/metadata.json`);
+  const title = (metadata?.data as { title?: unknown } | undefined)?.title;
+  return { path, kind, bookId, bookTitle: typeof title === "string" ? title : "当前图书笔记",
+    ...(kind === "annotation" ? { annotationId: path.split("/")[2].slice(0, -".json".length) } : {}),
+    local: conflictVersion(kind, write.data), remote: conflictVersion(kind, data) };
+}
+export async function resolveSyncConflict(
+  path: string, choice: "local" | "remote",
+  { graph = new GraphClient(), continueSync = syncNow }: { graph?: GraphClient; continueSync?: typeof syncNow } = {},
+) {
+  const kind = mutableDocumentKind(path);
+  if (!kind) throw new Error("该同步冲突不能在此处自动处理");
+  const current = await readMutableConflict(path, graph); const db = await database();
+  const tx = db.transaction(["documents", "queue", "remote", "settings"], "readwrite");
+  const queued = await tx.objectStore("queue").get(path);
+  if (!queued || queued.revision !== current.write.revision) { await tx.done; throw new Error("本机待同步修改已变化，请重新查看冲突"); }
+  if (choice === "local") await tx.objectStore("queue").put({ ...queued, baseEtag: current.remote.etag, attempts: 0 });
+  else {
+    await tx.objectStore("documents").put({ path, data: current.data });
+    await tx.objectStore("queue").delete(path);
+  }
+  await tx.objectStore("remote").put(current.remote);
+  await tx.objectStore("settings").delete(INVENTORY_CHECKPOINT);
+  await tx.done;
+  notifyLibraryChanged();
+  report("idle", "冲突已解决，正在继续同步");
+  void continueSync().catch(() => undefined);
 }
 export async function synchronize(graph: GraphClient) {
   const root = await libraryRoot(graph); const db = await database();
@@ -183,10 +244,10 @@ export async function synchronize(graph: GraphClient) {
         : blob.size === downloaded.blob.size && await digest(blob) === await digest(downloaded.blob);
       if (same) { await acknowledge(write.path, write.revision); continue; }
       // An old queue record predating baseEtag cannot prove it is safe to replace.
-      if (!mutable || write.baseEtag === undefined || write.baseEtag === null || existing.etag !== write.baseEtag) throw new SyncConflictError(write.path);
+      if (!mutable || write.baseEtag === undefined || write.baseEtag === null || existing.etag !== write.baseEtag) throw new SyncConflictError(write.path, mutableDocumentKind(write.path)!);
     }
     // A mutable document based on a now-missing server version is also ambiguous.
-    if (!existing && mutable && write.baseEtag) throw new SyncConflictError(write.path);
+    if (!existing && mutable && write.baseEtag) throw new SyncConflictError(write.path, mutableDocumentKind(write.path)!);
     const parts = write.path.split("/"); const name = parts.pop()!;
     try {
       // Invalidate before ANY cloud mutation, including parent creation and an
@@ -201,9 +262,9 @@ export async function synchronize(graph: GraphClient) {
       const update = db.transaction("queue", "readwrite"); const current = await update.store.get(write.path);
       if (current?.revision === write.revision) await update.store.put({ ...current, attempts: current.attempts + 1 });
       await update.done;
-      if (error instanceof GraphError && error.status === 412) throw new SyncConflictError(write.path);
+      if (error instanceof GraphError && error.status === 412) throw new SyncConflictError(write.path, mutableDocumentKind(write.path)!);
       if (error instanceof GraphError && error.status === 409) {
-        if (mutable) throw new SyncConflictError(write.path);
+        if (mutable) throw new SyncConflictError(write.path, mutableDocumentKind(write.path)!);
         throw new Error(`云端出现同名文件冲突：${write.path}。本机内容与待上传队列已保留，请重新同步核对`);
       }
       throw error;
