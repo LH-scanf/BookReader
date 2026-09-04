@@ -1,6 +1,8 @@
 import { InteractionRequiredAuthError, PublicClientApplication } from "@azure/msal-browser";
 import { database } from "../storage/database";
 import { assertSyncAllowed } from "../sync/experimentGate";
+import { SyncActionRequiredError } from "../sync/errors";
+import { PENDING_ONE_DRIVE_CONNECT } from "../sync/pendingConnect";
 
 const scopes = ["Files.ReadWrite.AppFolder"];
 const diagnosticScopes = ["User.Read", ...scopes];
@@ -32,7 +34,7 @@ export async function requireAccount() {
   const bound = await tx.store.get("boundAccount");
   if (bound && bound !== account.homeAccountId) {
     await tx.done;
-    throw new Error("本机书库绑定了另一个微软账号。为防止串号上传，请登录原账号；切换账号需另行备份并清理站点数据");
+    throw new SyncActionRequiredError("本机书库绑定了另一个微软账号。为防止串号上传，请登录原账号；切换账号需另行备份并清理站点数据");
   }
   // A single local library is deliberately pinned; sign-out never silently rebinds it.
   if (!bound) await tx.store.put(account.homeAccountId, "boundAccount");
@@ -47,6 +49,7 @@ export async function authorizeGraphDiagnostics() {
 }
 export async function signOut() {
   const account = await accountInfo();
+  await (await database()).put("settings", false, PENDING_ONE_DRIVE_CONNECT);
   await (await microsoftClient()).logoutRedirect({ account, postLogoutRedirectUri: `${location.origin}/` });
 }
 export async function accessToken() { return tokenFor(scopes); }
@@ -72,7 +75,7 @@ async function tokenFor(requestedScopes: string[]) {
     return result.accessToken;
   }
   catch (error) {
-    if (error instanceof InteractionRequiredAuthError) throw new Error(requestedScopes.includes("User.Read")
+    if (error instanceof InteractionRequiredAuthError) throw new SyncActionRequiredError(requestedScopes.includes("User.Read")
       ? "诊断需要交互授权，请点击“授权身份对照诊断”；本机数据已保留"
       : "微软登录已过期，请点击登录重新授权；本机待上传数据已保留");
     throw error;

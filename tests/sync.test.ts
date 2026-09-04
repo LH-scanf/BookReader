@@ -5,6 +5,7 @@ import { synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
 import * as microsoftAuth from "../src/auth/microsoft";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
 import { runGraphDiagnostics, type DiagnosticEntry } from "../src/sync/diagnostics";
+import { SyncActionRequiredError } from "../src/sync/errors";
 
 const bookId = "10000000-0000-4000-8000-000000000001";
 const device = "20000000-0000-4000-8000-000000000001";
@@ -48,6 +49,19 @@ it.each([401, 403])("pauses foreground retries after Graph HTTP %s without chang
     expect(syncSnapshot().message).toContain("自动重试已暂停");
     expect(await db.get("settings", "syncConsent")).toBe(true); expect(await db.count("queue")).toBe(1);
   } finally { auth.mockRestore(); graph.mockRestore(); if (locks) Object.defineProperty(navigator, "locks", locks); else Reflect.deleteProperty(navigator, "locks"); }
+});
+it("marks an interactive Microsoft reauthentication requirement as user action", async () => {
+  const locks = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_name: string, callback: () => Promise<void>) => callback() } });
+  const auth = vi.spyOn(microsoftAuth, "requireAccount").mockRejectedValue(new SyncActionRequiredError("微软登录已过期"));
+  const db = await database(); await db.put("settings", true, "syncConsent");
+  try {
+    await expect(syncNow()).rejects.toThrow("微软登录已过期");
+    expect(syncSnapshot()).toMatchObject({ phase: "error", requiresAction: true });
+  } finally {
+    auth.mockRestore();
+    if (locks) Object.defineProperty(navigator, "locks", locks); else Reflect.deleteProperty(navigator, "locks");
+  }
 });
 function fakeGraph() {
   const remote = new Map<string, { item: DriveItem; blob: Blob }>(); const uploaded: string[] = [];

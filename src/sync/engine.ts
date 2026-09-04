@@ -6,6 +6,7 @@ import { assertActive, MAX_EPUB_BYTES } from "../library/WebProvider";
 import { notifyLibraryChanged } from "../platform";
 import { GraphClient, GraphError, type DriveItem } from "./graph";
 import { assertSyncAllowed } from "./experimentGate";
+import { SyncActionRequiredError } from "./errors";
 
 export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
@@ -32,7 +33,7 @@ export function syncNow() {
     });
   })().catch((error: unknown) => {
     if (error instanceof GraphError && [429, 503].includes(error.status)) retryAt = Date.now() + error.retryAfter * 1000;
-    const requiresAction = error instanceof GraphError && [401, 403].includes(error.status);
+    const requiresAction = error instanceof SyncActionRequiredError || (error instanceof GraphError && [401, 403].includes(error.status));
     report("error", (error instanceof Error ? error.message : "同步失败，本机数据已保留")
       + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction);
     throw error;

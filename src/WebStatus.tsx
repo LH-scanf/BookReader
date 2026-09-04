@@ -24,27 +24,19 @@ export default function WebStatus() {
       if (!disposed) { setPending(count); setExperimentPaused(!!paused); }
     };
     const experimentChanged = () => { void refresh().catch(() => undefined); };
-    const autoSync = async () => {
-      if (await getSetting<boolean>(EXPERIMENT_PAUSE)) return;
-      if (document.visibilityState !== "visible" || !navigator.onLine || syncSnapshot().requiresAction || !await getSetting<boolean>("syncEnabled")) return;
-      if (await accountInfo()) await syncNow();
-    };
-    const trigger = () => { void autoSync().catch(() => undefined); };
-    const network = () => { setOnline(navigator.onLine); trigger(); };
+    const network = () => setOnline(navigator.onLine);
     const ready = () => setOfflineReady(true);
     const failed = () => setError("离线启动资源尚未缓存完成，请保持联网后重试");
     void refresh().catch((reason) => setError(String(reason)));
     void subscribeLibraryChanges(() => { void refresh().catch(() => undefined); }).then((fn) => { if (disposed) fn(); else cleanup = fn; });
-    void accountInfo().then((value) => { if (!disposed) setAccount(!!value); trigger(); }).catch((reason) => setError(String(reason)));
+    void accountInfo().then((value) => { if (!disposed) setAccount(!!value); }).catch((reason) => setError(String(reason)));
     window.addEventListener("online", network); window.addEventListener("offline", network);
     window.addEventListener("bookreader-permission-experiment", experimentChanged);
-    document.addEventListener("visibilitychange", trigger);
     window.addEventListener("bookreader-offline-ready", ready); window.addEventListener("bookreader-offline-error", failed);
     if (__WEB_BUILD__) void import("./pwa").then(({ installPwa }) => { if (!disposed) installPwa(); });
-    const timer = window.setInterval(trigger, 60000);
-    return () => { disposed = true; cleanup?.(); clearInterval(timer); window.removeEventListener("online", network); window.removeEventListener("offline", network);
+    return () => { disposed = true; cleanup?.(); window.removeEventListener("online", network); window.removeEventListener("offline", network);
       window.removeEventListener("bookreader-permission-experiment", experimentChanged);
-      document.removeEventListener("visibilitychange", trigger); window.removeEventListener("bookreader-offline-ready", ready); window.removeEventListener("bookreader-offline-error", failed); };
+      window.removeEventListener("bookreader-offline-ready", ready); window.removeEventListener("bookreader-offline-error", failed); };
   }, []);
   const run = async () => {
     setError("");

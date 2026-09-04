@@ -15,7 +15,8 @@ export const mobileSettingsParentPage = (page: Page): Page => parentPage[page] ?
 export function resolveMobileSyncState({ online, account, connected, status, lastSyncAt }: SyncInput): MobileSyncState {
   if (!online) return { kind: "offline", label: "离线", detail: "更改将在联网后同步" };
   if (status.phase === "syncing") return { kind: "syncing", label: "正在同步", detail: "正在同步 OneDrive" };
-  if (status.phase === "error") return { kind: "reconnect", label: "需要重新连接", detail: "重新连接" };
+  if (status.requiresAction) return { kind: "reconnect", label: "需要重新连接", detail: "重新连接" };
+  if (status.phase === "error") return { kind: "connected", label: "暂时无法同步", detail: "稍后重试" };
   if (!account || !connected) return { kind: "disconnected", label: "未连接", detail: "连接 OneDrive" };
   return { kind: "connected", label: "已连接", detail: lastSyncAt ? "已同步" : "已连接" };
 }
@@ -59,7 +60,11 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
   const state = resolveMobileSyncState({ online, account: !!name, connected, status, lastSyncAt });
   const connectOrSignIn = () => void action(async () => {
     const [auth, storage, sync] = await Promise.all([import("../auth/microsoft"), import("../storage/database"), import("../sync/engine")]);
-    if (!name) return auth.signIn();
+    if (!name) {
+      const { PENDING_ONE_DRIVE_CONNECT } = await import("../sync/pendingConnect");
+      await storage.setSetting(PENDING_ONE_DRIVE_CONNECT, true);
+      return auth.signIn();
+    }
     await storage.setSetting("syncConsent", true); await storage.setSetting("syncEnabled", true); await sync.syncNow();
   });
 

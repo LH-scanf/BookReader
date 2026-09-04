@@ -14,6 +14,17 @@
 
 具体 Mobile V1 验收用例在各 Task 确定时逐步补充，不在此提前假设。
 
+## Task 5B：Local-first 启动与后台同步
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| SYNC-BG-01 | 离线或 Microsoft 不可用时启动 Web/PWA | 本地书库立即加载；已下载 EPUB、进度、高亮和感悟均可继续使用；不等待同步，也不跳转登录。 |
+| SYNC-BG-02 | 已有缓存账号、`syncConsent` 与 `syncEnabled` 均开启时启动、回到前台、恢复网络或经过前台心跳 | 在可见、在线且未被权限实验或 `requiresAction` 阻止时，后台调用既有 `syncNow()`；重复事件由既有 running promise 去重。 |
+| SYNC-BG-03 | 未登录时点 Mobile 设置“连接 OneDrive”，完成 Microsoft redirect | 本机 `pendingOneDriveConnect` 在账号恢复后自动完成同意和自动同步设置、清理标记并后台同步；无需再点一次连接或同步。 |
+| SYNC-BG-04 | silent auth 需要交互、Graph 401/403 或绑定账号不匹配 | 本地阅读保持可用；同步显示“需要重新连接”并停止自动重试；绝不自动打开 Microsoft 登录页。 |
+| SYNC-BG-05 | 显式退出账号 | 只清理 pending connect 标记；本地图书、队列及既有账号绑定安全规则保留。 |
+| SYNC-BG-06 | Desktop 应用同步与设置 | 继续使用原 Desktop OneDrive 文件夹模型；本 Task 的 Web/PWA 后台生命周期不改变 Desktop 行为。 |
+
 ## Task 0A：端侧 shell 选择与回归
 
 | 编号 | 操作 | 预期结果 |

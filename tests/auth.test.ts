@@ -3,12 +3,13 @@ import { database, getSetting, setSetting } from "../src/storage/database";
 import { authorizeNarrowRetest, authorizeWideExperiment, cleanupExperimentProbe, finishPermissionExperiment,
   preparePermissionExperiment, readPermissionExperiment, runNarrowRetest, runWideExperiment } from "../src/sync/permissionExperiment";
 
-const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn(), silent: vi.fn(), clear: vi.fn() }));
+const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn(), logout: vi.fn(), silent: vi.fn(), clear: vi.fn() }));
 vi.mock("@azure/msal-browser", () => ({
   InteractionRequiredAuthError: class extends Error {},
   PublicClientApplication: class {
     async initialize() {}
     loginRedirect(request: unknown) { return state.redirect(request); }
+    logoutRedirect(request: unknown) { return state.logout(request); }
     clearCache(request: unknown) { return state.clear(request); }
     async handleRedirectPromise() { return null; }
     getActiveAccount() { return state.account; }
@@ -34,6 +35,16 @@ it("does not let ordinary auth return a cached wide-file token", async () => {
   state.scopes = ["Files.ReadWrite", "Files.ReadWrite.AppFolder"];
   try { const { accessToken } = await import("../src/auth/microsoft"); await expect(accessToken()).rejects.toThrow("较宽的文件权限"); }
   finally { vi.unstubAllEnvs(); }
+});
+it("clears a pending post-login connection when the user explicitly signs out", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  const { PENDING_ONE_DRIVE_CONNECT } = await import("../src/sync/pendingConnect");
+  const { signOut } = await import("../src/auth/microsoft");
+  await setSetting(PENDING_ONE_DRIVE_CONNECT, true);
+  try {
+    await signOut();
+    expect(await getSetting(PENDING_ONE_DRIVE_CONNECT)).toBe(false);
+  } finally { vi.unstubAllEnvs(); }
 });
 
 async function experimentTest(fn: () => Promise<void>) {
