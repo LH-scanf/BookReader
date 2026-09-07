@@ -10,35 +10,51 @@ import { SyncActionRequiredError, SyncConflictError } from "./errors";
 import { isMutableSharedDocument, mutableDocumentKind, type MutableDocumentKind } from "./mutableDocuments";
 
 export type SyncConflictSummary = { path: string; kind: MutableDocumentKind };
-export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean; conflict?: SyncConflictSummary };
+export type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean; conflict?: SyncConflictSummary; transient?: boolean };
 let status: SyncStatus = { phase: "idle", message: "本机保存；登录后可同步 OneDrive" };
 const listeners = new Set<() => void>();
 export const syncSnapshot = () => status;
 export function subscribeSync(callback: () => void) { listeners.add(callback); return () => { listeners.delete(callback); }; }
-function report(phase: SyncStatus["phase"], message: string, requiresAction = false, conflict?: SyncConflictSummary) { status = { phase, message, requiresAction, conflict }; listeners.forEach((fn) => fn()); }
+function report(phase: SyncStatus["phase"], message: string, requiresAction = false, conflict?: SyncConflictSummary, transient = false) { status = { phase, message, requiresAction, conflict, transient }; listeners.forEach((fn) => fn()); }
 let running: Promise<void> | undefined;
 let retryAt = 0;
+let transientFailures = 0;
+class SyncRetryPendingError extends Error {}
+export const isTransientGraphError = (error: unknown) => error instanceof GraphError && [429, 500, 502, 503, 504].includes(error.status);
+export function transientRetryDelayMs(error: GraphError, failures: number) {
+  if (error.status === 429) return Math.max(1, error.retryAfter) * 1000;
+  return Math.min(120_000, 15_000 * 2 ** Math.max(0, failures));
+}
 export function syncNow() {
   if (running) return running;
   running = (async () => {
     await assertSyncAllowed();
     if (!navigator.onLine) throw new Error("当前离线，已保存到本机，联网后同步");
     if (!await getSetting<boolean>("syncConsent")) throw new Error("请先到设置中点击“连接并同步书库”并确认，再使用同步");
-    if (Date.now() < retryAt) throw new Error("OneDrive 暂时限流，请稍后重试");
+    if (Date.now() < retryAt) {
+      const retrySeconds = Math.ceil((retryAt - Date.now()) / 1000);
+      report("error", `OneDrive 暂时无法同步，将在约 ${retrySeconds} 秒后自动重试`, false, undefined, true);
+      throw new SyncRetryPendingError("OneDrive 暂时无法同步，正在等待自动重试");
+    }
     if (!navigator.locks) throw new Error("当前浏览器缺少安全同步锁，请升级浏览器；本地阅读不受影响");
     await navigator.locks.request("bookreader-sync", async () => {
       await assertSyncAllowed();
       report("syncing", "正在同步 OneDrive…");
       await requireAccount(); await synchronize(new GraphClient());
+      retryAt = 0; transientFailures = 0;
       const count = await (await database()).count("queue");
       report("idle", count ? `已同步；还有 ${count} 项本机变更等待下一轮上传` : "已同步到 OneDrive");
     });
   })().catch((error: unknown) => {
-    if (error instanceof GraphError && [429, 503].includes(error.status)) retryAt = Date.now() + error.retryAfter * 1000;
+    const transient = error instanceof SyncRetryPendingError || isTransientGraphError(error);
+    if (transient && error instanceof GraphError) {
+      retryAt = Date.now() + transientRetryDelayMs(error, transientFailures);
+      transientFailures += 1;
+    }
     const requiresAction = error instanceof SyncActionRequiredError || (error instanceof GraphError && [401, 403].includes(error.status));
     const conflict = error instanceof SyncConflictError ? { path: error.path, kind: error.kind } : undefined;
-    report("error", (error instanceof Error ? error.message : "同步失败，本机数据已保留")
-      + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction, conflict);
+    report("error", transient ? "OneDrive 暂时无法同步，稍后将自动重试；本机数据已保留" : (error instanceof Error ? error.message : "同步失败，本机数据已保留")
+      + (requiresAction ? "。自动重试已暂停，请核对账号状态和授权后手动重试" : ""), requiresAction, conflict, transient);
     throw error;
   }).finally(() => { running = undefined; });
   return running;

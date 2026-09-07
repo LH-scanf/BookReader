@@ -3,7 +3,7 @@ import { database, getSetting, setSetting } from "../src/storage/database";
 import { authorizeNarrowRetest, authorizeWideExperiment, cleanupExperimentProbe, finishPermissionExperiment,
   preparePermissionExperiment, readPermissionExperiment, runNarrowRetest, runWideExperiment } from "../src/sync/permissionExperiment";
 
-const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" }, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn(), logout: vi.fn(), silent: vi.fn(), clear: vi.fn() }));
+const state = vi.hoisted(() => ({ account: { homeAccountId: "personal-a", username: "a@example.test" } as { homeAccountId: string; username: string } | null, scopes: ["Files.ReadWrite.AppFolder"], redirect: vi.fn(), logout: vi.fn(), silent: vi.fn(), sso: vi.fn(), clear: vi.fn(), redirectResult: null as { account: { homeAccountId: string; username: string } } | null, redirectError: null as Error | null }));
 vi.mock("@azure/msal-browser", () => ({
   InteractionRequiredAuthError: class extends Error {},
   PublicClientApplication: class {
@@ -11,9 +11,11 @@ vi.mock("@azure/msal-browser", () => ({
     loginRedirect(request: unknown) { return state.redirect(request); }
     logoutRedirect(request: unknown) { return state.logout(request); }
     clearCache(request: unknown) { return state.clear(request); }
-    async handleRedirectPromise() { return null; }
+    async handleRedirectPromise() { if (state.redirectError) throw state.redirectError; return state.redirectResult; }
     getActiveAccount() { return state.account; }
-    getAllAccounts() { return [state.account]; }
+    getAllAccounts() { return state.account ? [state.account] : []; }
+    setActiveAccount(account: typeof state.account) { state.account = account; }
+    async ssoSilent(request: unknown) { return state.sso(request); }
     async acquireTokenSilent(request: unknown) { state.silent(request); return { scopes: state.scopes, accessToken: "test-access-token" }; }
   },
 }));
@@ -25,7 +27,7 @@ it("requests explicit re-consent using only the existing app-folder scope", asyn
     await signIn();
     await reauthorizeOneDrive();
     expect(state.redirect.mock.calls).toEqual([
-      [{ scopes: ["Files.ReadWrite.AppFolder"], prompt: "select_account" }],
+      [{ scopes: ["Files.ReadWrite.AppFolder"] }],
       [{ scopes: ["Files.ReadWrite.AppFolder"], prompt: "consent" }],
     ]);
   } finally { vi.unstubAllEnvs(); }
@@ -36,6 +38,36 @@ it("does not let ordinary auth return a cached wide-file token", async () => {
   try { const { accessToken } = await import("../src/auth/microsoft"); await expect(accessToken()).rejects.toThrow("较宽的文件权限"); }
   finally { vi.unstubAllEnvs(); }
 });
+it("uses the remembered non-secret login hint for ordinary reconnect without select_account", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  const { LAST_MICROSOFT_LOGIN_HINT, signIn } = await import("../src/auth/microsoft");
+  await setSetting(LAST_MICROSOFT_LOGIN_HINT, "a@example.test"); state.redirect.mockClear();
+  try { await signIn(); expect(state.redirect).toHaveBeenCalledWith({ scopes: ["Files.ReadWrite.AppFolder"], loginHint: "a@example.test" }); }
+  finally { vi.unstubAllEnvs(); }
+});
+it("restores a missing cached account with ssoSilent and remembers the account hint", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  const { LAST_MICROSOFT_LOGIN_HINT, recoverMicrosoftAccount } = await import("../src/auth/microsoft");
+  state.account = null; state.sso.mockResolvedValueOnce({ account: { homeAccountId: "personal-a", username: "a@example.test" } });
+  await setSetting(LAST_MICROSOFT_LOGIN_HINT, "a@example.test");
+  try {
+    await expect(recoverMicrosoftAccount({ online: true, visible: true })).resolves.toMatchObject({ username: "a@example.test" });
+    expect(state.sso).toHaveBeenCalledWith({ scopes: ["Files.ReadWrite.AppFolder"], loginHint: "a@example.test" });
+    expect(await getSetting(LAST_MICROSOFT_LOGIN_HINT)).toBe("a@example.test");
+  } finally { state.account = { homeAccountId: "personal-a", username: "a@example.test" }; vi.unstubAllEnvs(); }
+});
+it("allows only one prompt=none recovery redirect and then requires manual reconnect", async () => {
+  vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
+  const { AUTO_REAUTH_ATTEMPTED, LAST_MICROSOFT_LOGIN_HINT, authRecoverySnapshot, recoverMicrosoftAccount } = await import("../src/auth/microsoft");
+  state.account = null; state.sso.mockRejectedValueOnce(new (await import("@azure/msal-browser")).InteractionRequiredAuthError()); state.redirect.mockClear();
+  await setSetting(LAST_MICROSOFT_LOGIN_HINT, "a@example.test"); sessionStorage.removeItem(AUTO_REAUTH_ATTEMPTED);
+  try {
+    await recoverMicrosoftAccount({ online: true, visible: true });
+    expect(state.redirect).toHaveBeenCalledWith({ scopes: ["Files.ReadWrite.AppFolder"], loginHint: "a@example.test", prompt: "none" });
+    await recoverMicrosoftAccount({ online: true, visible: true });
+    expect(state.redirect).toHaveBeenCalledTimes(1); expect(authRecoverySnapshot()).toBe("needs-interactive-reauth");
+  } finally { state.account = { homeAccountId: "personal-a", username: "a@example.test" }; sessionStorage.removeItem(AUTO_REAUTH_ATTEMPTED); vi.unstubAllEnvs(); }
+});
 it("clears a pending post-login connection when the user explicitly signs out", async () => {
   vi.stubEnv("VITE_MS_CLIENT_ID", "10000000-0000-4000-8000-000000000001");
   const { PENDING_ONE_DRIVE_CONNECT } = await import("../src/sync/pendingConnect");
@@ -44,6 +76,7 @@ it("clears a pending post-login connection when the user explicitly signs out", 
   try {
     await signOut();
     expect(await getSetting(PENDING_ONE_DRIVE_CONNECT)).toBe(false);
+    expect(await getSetting("lastMicrosoftLoginHint")).toBeUndefined();
   } finally { vi.unstubAllEnvs(); }
 });
 

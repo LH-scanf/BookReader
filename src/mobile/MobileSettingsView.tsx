@@ -7,15 +7,17 @@ const CloudSettings = import.meta.env.DEV ? lazy(() => import("../CloudSettings"
 type Appearance = "light" | "dark";
 type Page = "home" | "sync" | "conflict" | "advanced" | "storage" | "trash" | "appearance" | "about" | "updates";
 const parentPage: Partial<Record<Page, Page>> = { sync: "home", conflict: "sync", advanced: "sync", storage: "home", trash: "home", appearance: "home", updates: "home", about: "home" };
-type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean; conflict?: { path: string; kind: "annotation" | "book-note" } };
+type SyncStatus = { phase: "idle" | "syncing" | "error"; message: string; requiresAction?: boolean; conflict?: { path: string; kind: "annotation" | "book-note" }; transient?: boolean };
 type SyncConflictDetail = { path: string; kind: "annotation" | "book-note"; bookTitle: string; local: ConflictVersion; remote: ConflictVersion };
 type ConflictVersion = { quote?: string; reflection?: string; chapterTitle?: string; updatedAt?: string; deletedAt?: string | null; summary?: string };
-type SyncInput = { online: boolean; account: boolean; connected: boolean; status: SyncStatus; lastSyncAt: string };
+type SyncInput = { online: boolean; account: boolean; connected: boolean; recovery: "idle" | "recovering-auth" | "needs-interactive-reauth"; status: SyncStatus; lastSyncAt: string };
 export type MobileSyncState = { kind: "connected" | "syncing" | "offline" | "reconnect" | "disconnected"; label: string; detail: string };
 export const mobileSettingsParentPage = (page: Page): Page => parentPage[page] ?? "home";
 
-export function resolveMobileSyncState({ online, account, connected, status, lastSyncAt }: SyncInput): MobileSyncState {
+export function resolveMobileSyncState({ online, account, connected, recovery, status, lastSyncAt }: SyncInput): MobileSyncState {
   if (!online) return { kind: "offline", label: "离线", detail: "更改将在联网后同步" };
+  if (recovery === "recovering-auth") return { kind: "syncing", label: "正在恢复连接", detail: "正在恢复 OneDrive" };
+  if (recovery === "needs-interactive-reauth") return { kind: "reconnect", label: "需要重新连接", detail: "重新连接" };
   if (status.phase === "syncing") return { kind: "syncing", label: "正在同步", detail: "正在同步 OneDrive" };
   if (status.conflict) return { kind: "reconnect", label: "需要处理", detail: "处理冲突" };
   if (status.requiresAction) return { kind: "reconnect", label: "需要重新连接", detail: "重新连接" };
@@ -36,6 +38,7 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
   const [message, setMessage] = useState("");
   const [configured, setConfigured] = useState(false);
   const [status, setStatus] = useState<SyncStatus>({ phase: "idle", message: "" });
+  const [recovery, setRecovery] = useState<SyncInput["recovery"]>("idle");
   const [conflict, setConflict] = useState<SyncConflictDetail | null>(null);
   const [resolution, setResolution] = useState<"local" | "remote" | null>(null);
 
@@ -43,7 +46,7 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
     void Promise.all([import("../auth/microsoft"), import("../storage/database"), import("../sync/engine")])
       .then(async ([auth, storage, sync]) => {
         const snapshot = sync.syncSnapshot();
-        setConfigured(auth.authConfigured()); setStatus(snapshot);
+        setConfigured(auth.authConfigured()); setStatus(snapshot); setRecovery(auth.authRecoverySnapshot());
         if (snapshot.conflict) setConflict(await sync.getSyncConflict(snapshot.conflict.path)); else setConflict(null);
         const [account, consent, automatic, last, url] = await Promise.all([auth.accountInfo(), storage.getSetting<boolean>("syncConsent"), storage.getSetting<boolean>("syncEnabled"), storage.getSetting<string>("lastSyncAt"), storage.getSetting<string>("libraryWebUrl")]);
         setName(account?.username ?? ""); setConnected(!!consent); setEnabled(!!automatic); setLastSyncAt(last ?? ""); setLibraryUrl(url ?? "");
@@ -55,7 +58,7 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
     const updateOnline = () => setOnline(navigator.onLine);
     window.addEventListener("online", updateOnline); window.addEventListener("offline", updateOnline);
     let unlisten: (() => void) | undefined;
-    void import("../sync/engine").then((sync) => { const update = () => refresh(); update(); unlisten = sync.subscribeSync(update); });
+    void Promise.all([import("../sync/engine"), import("../auth/microsoft")]).then(([sync, auth]) => { const update = () => refresh(); update(); const stopSync = sync.subscribeSync(update); const stopRecovery = auth.subscribeAuthRecovery(update); unlisten = () => { stopSync(); stopRecovery(); }; });
     return () => { window.removeEventListener("online", updateOnline); window.removeEventListener("offline", updateOnline); unlisten?.(); };
   }, [refresh]);
 
@@ -64,12 +67,12 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
     try { await operation(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); refresh(); }
   };
-  const state = resolveMobileSyncState({ online, account: !!name, connected, status, lastSyncAt });
+  const state = resolveMobileSyncState({ online, account: !!name, connected, recovery, status, lastSyncAt });
   const connectOrSignIn = () => void action(async () => {
     const [auth, storage, sync] = await Promise.all([import("../auth/microsoft"), import("../storage/database"), import("../sync/engine")]);
     if (!name) {
       const { PENDING_ONE_DRIVE_CONNECT } = await import("../sync/pendingConnect");
-      await storage.setSetting(PENDING_ONE_DRIVE_CONNECT, true);
+      if (!connected) await storage.setSetting(PENDING_ONE_DRIVE_CONNECT, true);
       return auth.signIn();
     }
     await storage.setSetting("syncConsent", true); await storage.setSetting("syncEnabled", true); await sync.syncNow();
@@ -85,7 +88,7 @@ export function MobileSettingsView({ appearance, onAppearanceChange }: { appeara
 
   return <main className="mobile-settings-page mobile-settings-subpage">
     <header><button aria-label="返回设置" onClick={() => setPage(mobileSettingsParentPage(page))}><ArrowLeft size={20} /></button><h1>{page === "sync" ? "同步" : page === "conflict" ? "同步冲突" : page === "advanced" ? "高级同步" : page === "storage" ? "数据与存储" : page === "trash" ? "回收站" : page === "appearance" ? "外观" : page === "updates" ? "检查更新" : "BookReader"}</h1></header>
-    {page === "sync" && <section className="mobile-settings-detail"><h2>OneDrive</h2><div className="mobile-settings-status"><span>当前状态</span><strong><SyncDot kind={state.kind} />{state.label}</strong></div>{name && <div className="mobile-settings-status"><span>账号</span><strong>{name}</strong></div>}{status.conflict && <button className="mobile-settings-conflict-link" onClick={() => setPage("conflict")}><span><b>同步需要处理</b><small>1 个冲突</small></span><ChevronRight size={17} /></button>}{name && connected && <button className="mobile-settings-row-button" disabled={busy} onClick={() => void action(async () => { const storage = await import("../storage/database"); await storage.setSetting("syncEnabled", !enabled); })}>自动同步 <span>{enabled ? "已开启" : "已关闭"}</span></button>}<div className="mobile-settings-actions">{(!name || !connected) ? <button className="mobile-settings-primary" disabled={busy || !configured} onClick={connectOrSignIn}>连接 OneDrive</button> : <><button className="mobile-settings-secondary" disabled={busy} onClick={() => void action(async () => (await import("../auth/microsoft")).reauthorizeOneDrive())}>重新连接</button><button className="mobile-settings-sync-now" disabled={busy || !online || status.phase === "syncing" || !!status.conflict} onClick={() => void action(async () => (await import("../sync/engine")).syncNow())}>{status.phase === "syncing" ? "正在同步…" : "立即同步"}</button></>}</div>{name && <button className="mobile-settings-link" onClick={() => setPage("advanced")}>高级设置 <ChevronRight size={16} /></button>}{message && <p className="mobile-settings-message" role="status">{message}</p>}</section>}
+    {page === "sync" && <section className="mobile-settings-detail"><h2>OneDrive</h2><div className="mobile-settings-status"><span>当前状态</span><strong><SyncDot kind={state.kind} />{state.label}</strong></div>{name && <div className="mobile-settings-status"><span>账号</span><strong>{name}</strong></div>}{status.conflict && <button className="mobile-settings-conflict-link" onClick={() => setPage("conflict")}><span><b>同步需要处理</b><small>1 个冲突</small></span><ChevronRight size={17} /></button>}{name && connected && <button className="mobile-settings-row-button" disabled={busy} onClick={() => void action(async () => { const storage = await import("../storage/database"); await storage.setSetting("syncEnabled", !enabled); })}>自动同步 <span>{enabled ? "已开启" : "已关闭"}</span></button>}<div className="mobile-settings-actions">{(!name || !connected) ? <button className="mobile-settings-primary" disabled={busy || !configured} onClick={connectOrSignIn}>{connected ? "重新连接" : "连接 OneDrive"}</button> : <><button className="mobile-settings-secondary" disabled={busy} onClick={() => void action(async () => (await import("../auth/microsoft")).reauthorizeOneDrive())}>重新连接</button><button className="mobile-settings-sync-now" disabled={busy || !online || status.phase === "syncing" || !!status.conflict} onClick={() => void action(async () => (await import("../sync/engine")).syncNow())}>{status.phase === "syncing" ? "正在同步…" : "立即同步"}</button></>}</div>{name && <button className="mobile-settings-link" onClick={() => setPage("advanced")}>高级设置 <ChevronRight size={16} /></button>}{message && <p className="mobile-settings-message" role="status">{message}</p>}</section>}
     {page === "conflict" && <MobileSyncConflict conflict={conflict} busy={busy} resolution={resolution} onChoose={setResolution} onCancel={() => setResolution(null)} onResolve={() => { if (!conflict || !resolution) return; void action(async () => { const sync = await import("../sync/engine"); await sync.resolveSyncConflict(conflict.path, resolution); setResolution(null); setPage("sync"); }); }} message={message} />}
     {page === "advanced" && <section className="mobile-settings-detail"><h2>高级同步</h2><button className="mobile-settings-row-button" disabled={busy} onClick={() => void action(async () => (await import("../auth/microsoft")).reauthorizeOneDrive())}>重新授权 OneDrive <ChevronRight size={16} /></button>{libraryUrl.startsWith("https://") && <a className="mobile-settings-row-button" href={libraryUrl} target="_blank" rel="noreferrer">查看 OneDrive 书库 <ChevronRight size={16} /></a>}{import.meta.env.DEV && CloudSettings && <details className="mobile-settings-dev"><summary>开发诊断</summary><Suspense fallback={<p>正在载入诊断工具…</p>}><CloudSettings /></Suspense></details>}<button className="mobile-settings-danger" disabled={busy} onClick={() => void action(async () => (await import("../auth/microsoft")).signOut())}>退出账号</button>{message && <p className="mobile-settings-message" role="status">{message}</p>}</section>}
     {page === "storage" && <section className="mobile-settings-detail"><h2>离线图书</h2><p>已下载的图书可在无网络时阅读。</p><div className="mobile-settings-storage"><strong><ShieldCheck size={18} />本地数据保护</strong><p>帮助降低系统自动清理 BookReader 数据的可能性。</p><button onClick={() => void action(async () => { const granted = await navigator.storage?.persist?.(); setMessage(granted ? "本地数据保护已开启。" : "暂时无法开启本地数据保护。"); })}>保护本地数据</button></div>{message && <p className="mobile-settings-message" role="status">{message}</p>}</section>}

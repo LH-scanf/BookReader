@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { database, writeDocuments, pending } from "../src/storage/database";
 import { storeFile } from "../src/storage/files";
-import { getSyncConflict, resolveSyncConflict, synchronize, syncNow, syncSnapshot } from "../src/sync/engine";
+import { getSyncConflict, isTransientGraphError, resolveSyncConflict, synchronize, syncNow, syncSnapshot, transientRetryDelayMs } from "../src/sync/engine";
 import * as microsoftAuth from "../src/auth/microsoft";
 import { GraphClient, GraphError, type DriveItem } from "../src/sync/graph";
 import { runGraphDiagnostics, type DiagnosticEntry } from "../src/sync/diagnostics";
@@ -19,6 +19,14 @@ const annotation = (reflection: string, deletedAt: string | null = null) => ({ s
   quote: "摘录", reflection, cfiRange: "epubcfi(/6/2)", chapterTitle: "第一章", chapterHref: "chapter.xhtml", createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", deletedAt });
 const notePath = `notes/${bookId}.json`;
 const bookNote = (summary: string) => ({ schemaVersion: 1, bookId, summary, updatedAt: "2026-08-26T00:00:00Z" });
+it("classifies Graph 504 as transient with capped exponential retry while 401/403 still require action", () => {
+  expect(isTransientGraphError(new GraphError(504, 60))).toBe(true);
+  expect(isTransientGraphError(new GraphError(401, 60))).toBe(false);
+  expect(isTransientGraphError(new GraphError(403, 60))).toBe(false);
+  expect(transientRetryDelayMs(new GraphError(504, 60), 0)).toBe(15_000);
+  expect(transientRetryDelayMs(new GraphError(504, 60), 3)).toBe(120_000);
+  expect(transientRetryDelayMs(new GraphError(429, 12), 3)).toBe(12_000);
+});
 it("blocks sync during the persisted permission experiment before acquiring auth or sending requests", async () => {
   const db = await database(); await db.put("settings", true, "permissionExperimentPaused"); await db.put("settings", true, "syncConsent");
   const auth = vi.spyOn(microsoftAuth, "requireAccount"); const fetch = vi.spyOn(globalThis, "fetch");

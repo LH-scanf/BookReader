@@ -7,6 +7,7 @@ function dependencies(settings: Record<string, unknown> = {}, account = true) {
   const values = new Map(Object.entries(settings));
   const deps: BackgroundSyncDependencies = {
     accountInfo: vi.fn(async () => account ? { homeAccountId: "account" } : null) as never,
+    recoverMicrosoftAccount: vi.fn(async () => null) as never,
     getSetting: vi.fn(async <T>(key: string) => values.get(key) as T | undefined),
     setSetting: vi.fn(async (key: string, value: unknown) => { values.set(key, value); }),
     syncNow,
@@ -57,4 +58,12 @@ it("does not retry an account that already requires explicit action", async () =
   deps.syncSnapshot = vi.fn(() => ({ phase: "error", message: "", requiresAction: true }));
   await expect(coordinateBackgroundSync({}, deps)).resolves.toBe(false);
   expect(syncNow).not.toHaveBeenCalled();
+});
+
+it("recovers a previously connected account before starting the automatic sync", async () => {
+  const { deps, syncNow } = dependencies({ syncConsent: true, syncEnabled: true }, false);
+  deps.recoverMicrosoftAccount = vi.fn(async () => ({ homeAccountId: "recovered" })) as never;
+  await expect(coordinateBackgroundSync({ startup: true }, deps)).resolves.toBe(true);
+  expect(deps.recoverMicrosoftAccount).toHaveBeenCalledWith({ online: true, visible: true });
+  expect(syncNow).toHaveBeenCalledOnce();
 });

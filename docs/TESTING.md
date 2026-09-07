@@ -25,6 +25,20 @@
 | SYNC-BG-05 | 显式退出账号 | 只清理 pending connect 标记；本地图书、队列及既有账号绑定安全规则保留。 |
 | SYNC-BG-06 | Desktop 应用同步与设置 | 继续使用原 Desktop OneDrive 文件夹模型；本 Task 的 Web/PWA 后台生命周期不改变 Desktop 行为。 |
 
+## Task 5B.3：iOS PWA 认证恢复与临时 Graph 故障
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| SYNC-RECOVER-01 | 已启用同步且 MSAL account cache 正常 | 直接静默取 token 并后台同步；不触发认证恢复。 |
+| SYNC-RECOVER-02 | iOS PWA 跨 session 后 account cache 缺失、但保存有历史 login hint | 设置显示“正在恢复连接”；先尝试 `ssoSilent`，成功后自动同步。 |
+| SYNC-RECOVER-03 | `ssoSilent` 需要交互且 Microsoft 仍有 first-party session | 每 browser session 最多一次 `prompt=none` 顶层恢复；成功后回到后台同步。 |
+| SYNC-RECOVER-04 | `prompt=none` 返回 login/interaction/consent required | 不发生 redirect loop；本地阅读继续，设置显示“需要重新连接”。 |
+| SYNC-RECOVER-05 | 从未连接 OneDrive 的本机 | 不自动登录，设置显示“未连接”。显式退出会清除 login hint 与 recovery guard，但不清本地书库或 queue。 |
+| SYNC-RECOVER-06 | 用户点“重新连接”且存在 login hint | 普通登录不强制 `select_account`；可复用 Microsoft 已有 session。 |
+| SYNC-RETRY-01 | Graph 429、500、502、503 或 504 | 队列保留并在 429 的 `Retry-After` 或 15/30/60/120 秒封顶退避后重试；成功同步重置退避。 |
+| SYNC-RETRY-02 | Mobile Reader 阅读时发生临时 Graph 故障 | 不用 blocking 全局浮层覆盖正文；阅读、本地进度和笔记继续可用，设置显示“暂时无法同步”。 |
+| SYNC-RETRY-03 | Graph 401/403 或共享文档冲突 | 仍标记为需要用户处理，分别维持重新连接与既有冲突 resolver 行为。 |
+
 ## Task 5B.1：共享可变文档的条件同步
 
 | 编号 | 操作 | 预期结果 |

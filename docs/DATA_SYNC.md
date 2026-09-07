@@ -33,7 +33,8 @@ SQLite/IndexedDB 等本地索引和浏览器/应用偏好不属于同步书库�
 - **OneDrive AppFolder。** Web 通过 Microsoft Graph 的应用专用目录访问 OneDrive，在其下使用 `BookReaderLibrary/`；正式同步只请求委托权限 `Files.ReadWrite.AppFolder`，不依赖全盘文件权限。
 - **桌面 OneDrive 文件夹。** Desktop 选择已由 OneDrive 客户端同步到本机的书库目录，由客户端负责上传/下载文件；桌面应用监听目录变化并刷新书库。
 - **账号绑定。** 一个浏览器站点的本机书库绑定一个 Microsoft 账号和书库 ID。退出登录保留本机缓存与队列；不得静默把已有书库改绑到另一个账号上传。账号迁移流程待确认。
-- **后台恢复。** 已明确同意并启用同步的 Web/PWA，在启动、恢复前台、重新联网和前台心跳时，可用缓存账号静默调用同步。交互式认证、授权缺失、Graph 401/403 或账号绑定不匹配会标记为“需要重新连接”，不会自动跳转 Microsoft 登录页。首次点击连接后若发生 Microsoft redirect，本机 `pendingOneDriveConnect` 标记会在账号恢复后完成同意、启用并发起一次后台同步；该标记不属于同步书库。
+- **后台恢复。** 已明确同意并启用同步的 Web/PWA，在启动、恢复前台、重新联网和前台心跳时，可用缓存账号静默调用同步。MSAL Browser v4 即使使用 `localStorage`，其认证产物仍可能因浏览器 session 的加密上下文（尤其 iOS PWA 被系统结束后）而无法恢复；BookReader 不保存 token，而是仅在本机 settings 保存非秘密的 `lastMicrosoftLoginHint`。缓存账号缺失时依次尝试账号 cache、`ssoSilent`、每 browser session 最多一次带 `prompt=none` 的顶层恢复；仍失败才显示“需要重新连接”。Graph 401/403、账号绑定不匹配仍需用户处理。首次点击连接后若发生 Microsoft redirect，本机 `pendingOneDriveConnect` 标记会在账号恢复后完成同意、启用并发起一次后台同步；该标记不属于同步书库。
+- **临时 Graph 故障。** 429、500、502、503、504 是可恢复的临时错误：429 优先遵守 `Retry-After`，其余使用 15s、30s、60s、120s 封顶退避，成功同步后重置。它们不会被判为授权或数据冲突，队列保留；Mobile 不用全局错误浮层遮挡阅读，设置页显示“暂时无法同步”。
 
 ## 边界与待确认
 

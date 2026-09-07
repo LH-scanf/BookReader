@@ -1,4 +1,4 @@
-import { InteractionRequiredAuthError, PublicClientApplication } from "@azure/msal-browser";
+import { InteractionRequiredAuthError, PublicClientApplication, type AccountInfo } from "@azure/msal-browser";
 import { database } from "../storage/database";
 import { assertSyncAllowed } from "../sync/experimentGate";
 import { SyncActionRequiredError } from "../sync/errors";
@@ -6,8 +6,29 @@ import { PENDING_ONE_DRIVE_CONNECT } from "../sync/pendingConnect";
 
 const scopes = ["Files.ReadWrite.AppFolder"];
 const diagnosticScopes = ["User.Read", ...scopes];
+export const LAST_MICROSOFT_LOGIN_HINT = "lastMicrosoftLoginHint";
+export const AUTO_REAUTH_ATTEMPTED = "bookreader-auto-reauth-attempted";
+export type AuthRecoveryState = "idle" | "recovering-auth" | "needs-interactive-reauth";
 export const authConfigured = () => /^[0-9a-f-]{36}$/i.test(import.meta.env.VITE_MS_CLIENT_ID ?? "");
 let clientPromise: Promise<PublicClientApplication> | undefined;
+let recoveryState: AuthRecoveryState = "idle";
+const recoveryListeners = new Set<() => void>();
+
+export const authRecoverySnapshot = () => recoveryState;
+export function subscribeAuthRecovery(callback: () => void) { recoveryListeners.add(callback); return () => recoveryListeners.delete(callback); }
+function setRecoveryState(next: AuthRecoveryState) { recoveryState = next; recoveryListeners.forEach((listener) => listener()); }
+function autoRecoveryAttempted() { return sessionStorage.getItem(AUTO_REAUTH_ATTEMPTED) === "1"; }
+function clearAutoRecoveryAttempt() { sessionStorage.removeItem(AUTO_REAUTH_ATTEMPTED); }
+function isInteractionRequired(error: unknown) {
+  if (error instanceof InteractionRequiredAuthError) return true;
+  const code = typeof error === "object" && error && "errorCode" in error ? (error as { errorCode?: unknown }).errorCode : undefined;
+  return code === "login_required" || code === "interaction_required" || code === "consent_required";
+}
+function loginHint(account: AccountInfo) { return account.username || account.homeAccountId; }
+async function rememberAccount(account: AccountInfo) {
+  const hint = loginHint(account);
+  if (hint) await (await database()).put("settings", hint, LAST_MICROSOFT_LOGIN_HINT);
+}
 export function microsoftClient() {
   if (!authConfigured()) throw new Error("尚未配置微软应用 Client ID；本地阅读仍可使用");
   return clientPromise ??= (async () => {
@@ -17,15 +38,33 @@ export function microsoftClient() {
       cache: { cacheLocation: "localStorage" },
     });
     await client.initialize();
-    const result = await client.handleRedirectPromise();
-    if (result?.account) client.setActiveAccount(result.account);
+    try {
+      const result = await client.handleRedirectPromise();
+      if (result?.account) {
+        client.setActiveAccount(result.account);
+        await rememberAccount(result.account);
+        clearAutoRecoveryAttempt();
+        setRecoveryState("idle");
+      }
+    } catch (error) {
+      // A guarded prompt=none redirect may legitimately return without a Microsoft
+      // session. Keep the client usable so the local-first app can continue.
+      if (autoRecoveryAttempted() && isInteractionRequired(error)) setRecoveryState("needs-interactive-reauth");
+      else throw error;
+    }
     return client;
   })();
 }
 export async function accountInfo() {
   if (!authConfigured()) return null;
   const client = await microsoftClient();
-  return client.getActiveAccount() ?? client.getAllAccounts()[0] ?? null;
+  const account = client.getActiveAccount() ?? client.getAllAccounts()[0] ?? null;
+  if (account) {
+    await rememberAccount(account);
+    clearAutoRecoveryAttempt();
+    if (recoveryState !== "idle") setRecoveryState("idle");
+  }
+  return account;
 }
 export async function requireAccount() {
   const account = await accountInfo();
@@ -41,7 +80,48 @@ export async function requireAccount() {
   await tx.done;
   return account;
 }
-export async function signIn() { await (await microsoftClient()).loginRedirect({ scopes, prompt: "select_account" }); }
+/**
+ * Recovers a previously connected account without persisting credentials ourselves.
+ * A top-level prompt=none redirect is deliberately attempted at most once per browser
+ * session; a user can always choose the normal reconnect action afterwards.
+ */
+export async function recoverMicrosoftAccount({ online, visible }: { online: boolean; visible: boolean }) {
+  if (!authConfigured()) return null;
+  const hint = await (await database()).get("settings", LAST_MICROSOFT_LOGIN_HINT) as string | undefined;
+  if (!hint) return null;
+  const client = await microsoftClient();
+  const existing = client.getActiveAccount() ?? client.getAllAccounts()[0] ?? null;
+  if (existing) { client.setActiveAccount(existing); await rememberAccount(existing); return existing; }
+  if (recoveryState === "needs-interactive-reauth" || autoRecoveryAttempted()) {
+    setRecoveryState("needs-interactive-reauth");
+    return null;
+  }
+  setRecoveryState("recovering-auth");
+  try {
+    const result = await client.ssoSilent({ scopes, loginHint: hint });
+    if (!result.account) return null;
+    client.setActiveAccount(result.account);
+    await rememberAccount(result.account);
+    clearAutoRecoveryAttempt();
+    setRecoveryState("idle");
+    return result.account;
+  } catch (error) {
+    if (!isInteractionRequired(error)) return null;
+    if (!online || !visible || autoRecoveryAttempted()) {
+      setRecoveryState("needs-interactive-reauth");
+      return null;
+    }
+    sessionStorage.setItem(AUTO_REAUTH_ATTEMPTED, "1");
+    await client.loginRedirect({ scopes, loginHint: hint, prompt: "none" });
+    return null;
+  }
+}
+export async function signIn() {
+  clearAutoRecoveryAttempt();
+  setRecoveryState("idle");
+  const hint = await (await database()).get("settings", LAST_MICROSOFT_LOGIN_HINT) as string | undefined;
+  await (await microsoftClient()).loginRedirect(hint ? { scopes, loginHint: hint } : { scopes });
+}
 // Explicit user action: ask for consent again without widening access or clearing local data.
 export async function reauthorizeOneDrive() { await (await microsoftClient()).loginRedirect({ scopes, prompt: "consent" }); }
 export async function authorizeGraphDiagnostics() {
@@ -50,6 +130,9 @@ export async function authorizeGraphDiagnostics() {
 export async function signOut() {
   const account = await accountInfo();
   await (await database()).put("settings", false, PENDING_ONE_DRIVE_CONNECT);
+  await (await database()).delete("settings", LAST_MICROSOFT_LOGIN_HINT);
+  clearAutoRecoveryAttempt();
+  setRecoveryState("idle");
   await (await microsoftClient()).logoutRedirect({ account, postLogoutRedirectUri: `${location.origin}/` });
 }
 export async function accessToken() { return tokenFor(scopes); }

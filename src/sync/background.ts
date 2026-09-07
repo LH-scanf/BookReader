@@ -1,4 +1,4 @@
-import { accountInfo } from "../auth/microsoft";
+import { accountInfo, recoverMicrosoftAccount } from "../auth/microsoft";
 import { getSetting, setSetting } from "../storage/database";
 import { EXPERIMENT_PAUSE } from "./experimentGate";
 import { PENDING_ONE_DRIVE_CONNECT } from "./pendingConnect";
@@ -27,6 +27,7 @@ export function shouldRunBackgroundSync(facts: BackgroundSyncFacts) {
 
 export type BackgroundSyncDependencies = {
   accountInfo: typeof accountInfo;
+  recoverMicrosoftAccount: typeof recoverMicrosoftAccount;
   getSetting: typeof getSetting;
   setSetting: typeof setSetting;
   syncNow: typeof syncNow;
@@ -36,7 +37,7 @@ export type BackgroundSyncDependencies = {
 };
 
 const browserDependencies: BackgroundSyncDependencies = {
-  accountInfo, getSetting, setSetting, syncNow, syncSnapshot,
+  accountInfo, recoverMicrosoftAccount, getSetting, setSetting, syncNow, syncSnapshot,
   online: () => navigator.onLine,
   visible: () => document.visibilityState === "visible",
 };
@@ -49,19 +50,27 @@ export async function coordinateBackgroundSync(
   { startup = false }: { startup?: boolean } = {},
   deps: BackgroundSyncDependencies = browserDependencies,
 ) {
-  const account = await deps.accountInfo();
-  const pending = !!await deps.getSetting<boolean>(PENDING_ONE_DRIVE_CONNECT);
-  if (pending && account) {
+  let account = await deps.accountInfo();
+  let pending = !!await deps.getSetting<boolean>(PENDING_ONE_DRIVE_CONNECT);
+  const completePendingConnect = async () => {
     await deps.setSetting("syncConsent", true);
     await deps.setSetting("syncEnabled", true);
     await deps.setSetting(PENDING_ONE_DRIVE_CONNECT, false);
-  }
+    pending = false;
+  };
+  if (pending && account) await completePendingConnect();
 
   const [consent, enabled, paused] = await Promise.all([
     deps.getSetting<boolean>("syncConsent"),
     deps.getSetting<boolean>("syncEnabled"),
     deps.getSetting<boolean>(EXPERIMENT_PAUSE),
   ]);
+  // This is deliberately after the local UI has mounted and only for people who
+  // explicitly connected OneDrive before. It never blocks local library loading.
+  if (!account && consent && enabled && !paused && deps.online()) {
+    account = await deps.recoverMicrosoftAccount({ online: true, visible: deps.visible() });
+    if (pending && account) await completePendingConnect();
+  }
   const eligible = shouldRunBackgroundSync({
     online: deps.online(), visible: deps.visible(), startup, account: !!account,
     consent: !!consent, enabled: !!enabled, paused: !!paused,
