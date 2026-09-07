@@ -148,6 +148,15 @@
 
 iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复，必须保持。
 
+## Mobile Reader 正常恢复阅读位置
+
+| 编号 | 操作 | 预期结果 |
+| --- | --- | --- |
+| MOBILE-RESUME-01 | Mobile 离线阅读到章节中后段，正常退出，再从继续阅读重开 | 先加载保存 CFI，再在 `scrolled-doc` layout ready 后以 Range 恢复真实纵向位置；不只停留在章节中 epub.js 初始 display 的位置。 |
+| MOBILE-RESUME-02 | 恢复过程先产生章节较前的 relocated | 该临时 CFI/百分比不写入 progress；完成恢复后才恢复正常 progress 更新。 |
+| MOBILE-RESUME-03 | 保存 CFI 无效，或 CFI 恢复后的 percentage 与保存值明显偏离 | Reader 仍可打开；优先 CFI，必要时用已有 locations percentage CFI 做一次无提示 fallback。 |
+| MOBILE-RESUME-04 | 从笔记或搜索进入 preview，及 Desktop 重开图书 | 笔记继续使用 focus/highlight；Desktop 不增加 Mobile scroll restore。 |
+
 ## Task 4A：Mobile 完整笔记页面骨架
 
 | 编号 | 操作 | 预期结果 |

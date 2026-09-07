@@ -5,5 +5,5 @@
 - **已经可用：** 本地 EPUB 书库与阅读、阅读位置/CFI、笔记与高亮、软删除/恢复；Web/PWA 的离线启动、Microsoft 登录和 OneDrive AppFolder 同步路径已具备。详情见 [数据与同步](DATA_SYNC.md)。
 - **当前主要问题：** Mobile V1 的真机验收仍在持续进行；完整双设备进度验收也仍待确认。Desktop / Mobile 顶层 shell 已隔离，但部分页面内部仍保留 shared legacy UI / 响应式适配。
 - **当前阶段：** Mobile V1。
-- **当前正在做：** Mobile V1 Task 5B.3 — iOS PWA 跨会话 Microsoft 登录恢复与 Graph 临时故障处理。
-- **下一步：** 等待 Task 5B.3 iPhone/PWA 真机验收；恢复与退避不得阻塞本地阅读。
+- **当前正在做：** Mobile Reader 正常恢复阅读位置精度修复。
+- **下一步：** 等待 iPhone 真机验收：Mobile `scrolled-doc` 重开必须在 layout ready 后按保存 CFI 恢复真实纵向位置，且不得覆盖本地进度。

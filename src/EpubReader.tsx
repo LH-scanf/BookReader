@@ -6,6 +6,7 @@ import {
 import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
+import { needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
@@ -92,6 +93,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const orientationRestoreGenerationRef = useRef(0);
   const restoringOrientationRef = useRef(false);
   const orientationRestoreInFlightRef = useRef(false);
+  const restoringInitialProgressRef = useRef(false);
   const pagingDiagnosticEnabledRef = useRef(false);
   const mobileWeb = !isDesktopApp() && isMobileWebDevice();
   const mobileReader = getCurrentUiMode() === "mobile";
@@ -456,21 +458,59 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     }
   }, [iosWeb]);
 
-  const focusCfi = useCallback(async (cfi: string) => {
+  const locateCfi = useCallback(async (cfi: string) => {
     const epubBook = epubBookRef.current as unknown as { getRange?: (target: string) => Promise<Range> } | null;
-    if (!epubBook?.getRange) return;
+    if (!epubBook?.getRange) return null;
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     try {
       const range = await epubBook.getRange(cfi);
       const element = (range.startContainer.nodeType === Node.ELEMENT_NODE
         ? range.startContainer
         : range.startContainer.parentElement) as HTMLElement | null;
-      if (!element) return;
-      if (readingMode === "scroll") element.scrollIntoView({ block: "center", inline: "nearest" });
+      if (!element) return null;
+      if (readingMode === "scroll") {
+        if (!mobileReader) element.scrollIntoView({ block: "center", inline: "nearest" });
+        else {
+          const contentsDocument = range.startContainer.ownerDocument;
+          const scroller = contentsDocument?.scrollingElement as HTMLElement | null | undefined;
+          const rect = range.getBoundingClientRect();
+          if (scroller && Number.isFinite(rect.top) && (rect.top !== 0 || rect.bottom !== 0)) {
+            const target = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + rect.top - 18));
+            scroller.scrollTo({ top: target, behavior: "auto" });
+          } else element.scrollIntoView({ block: "start", inline: "nearest" });
+        }
+      }
+      return element;
+    } catch { return null; /* malformed external CFI */ }
+  }, [mobileReader, readingMode]);
+
+  const focusCfi = useCallback(async (cfi: string) => {
+    const element = await locateCfi(cfi);
+    if (!element) return;
+    try {
       element.classList.add("bookreader-note-target");
       window.setTimeout(() => element.classList.remove("bookreader-note-target"), 1800);
-    } catch { /* malformed external CFI */ }
-  }, [readingMode]);
+    } catch { /* a view may be disposed while a preview is closing */ }
+  }, [locateCfi]);
+
+  const restoreReadingPosition = useCallback(async (cfi: string) => {
+    const rendition = renditionRef.current;
+    const epubBook = epubBookRef.current;
+    if (!rendition || !epubBook) return;
+    await locateCfi(cfi);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const location = await rendition.currentLocation() as unknown as LocationEvent | undefined;
+    const restored = location?.start?.percentage ?? (location?.start?.cfi ? epubBook.locations.percentageFromCfi(location.start.cfi) : undefined);
+    // CFI is the primary anchor. Percentage only provides a safe second attempt
+    // when WebKit leaves a scrolled-doc iframe materially away from that anchor.
+    if (needsMobileResumePercentageFallback(book.progress, restored)) {
+      const fallback = epubBook.locations.cfiFromPercentage(book.progress);
+      if (fallback) {
+        await rendition.display(fallback);
+        await locateCfi(fallback);
+      }
+    }
+  }, [book.progress, locateCfi]);
 
   useEffect(() => {
     if (!mobileReader) return;
@@ -739,7 +779,11 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           const orientationPlan = orientationRestorePlanRef.current;
           const orientationIsOverridingCurrentNavigation = restoringOrientationRef.current
             && (!orientationPlan || localNavigationAtRef.current <= orientationPlan.navigationAt);
-          if (previewingRef.current || orientationIsOverridingCurrentNavigation) return;
+          if (!shouldPersistRelocated({
+            restoringInitialProgress: restoringInitialProgressRef.current,
+            previewing: previewingRef.current,
+            restoringOrientation: orientationIsOverridingCurrentNavigation,
+          })) return;
           lastProgressRef.current = { cfi, href, percentage: next };
           onProgressRef.current(book.id, next, cfi, href);
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -756,8 +800,27 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           previewingRef.current = true;
           setReturnAvailable(Boolean(initialReturnCfiRef.current));
         }
-        await rendition.display(initialTarget ?? displayedCfiRef.current ?? undefined);
+        const resumeCfi = initialTarget ? null : displayedCfiRef.current;
+        const restoreInitialProgress = shouldRestoreMobileResume({ mobileReader, readingMode, resumeCfi, initialTarget });
+        restoringInitialProgressRef.current = restoreInitialProgress;
+        try {
+          await rendition.display(initialTarget ?? resumeCfi ?? undefined);
+        } catch (reason) {
+          // A malformed saved CFI must not make an otherwise readable local EPUB
+          // unusable. Preview targets keep their existing explicit failure behavior.
+          if (!initialTarget && resumeCfi) {
+            restoringInitialProgressRef.current = false;
+            await rendition.display();
+          } else throw reason;
+        }
         if (initialTarget) await focusCfi(initialTarget);
+        else if (restoreInitialProgress && resumeCfi) {
+          try { await restoreReadingPosition(resumeCfi); }
+          finally {
+            restoringInitialProgressRef.current = false;
+            rendition.reportLocation();
+          }
+        }
         applyHighlights(rendition, annotationsRef.current, themeRef.current);
         appliedHighlightCfisRef.current = annotationsRef.current.map((record) => record.cfiRange);
         if (!cancelled) setLoading(false);
@@ -774,7 +837,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, mobileReader, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, showSelectionToolbar, toggleMobileControls, turnPage]);
+  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, mobileReader, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, restoreReadingPosition, showSelectionToolbar, toggleMobileControls, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
