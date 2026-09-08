@@ -6,7 +6,7 @@ import {
 import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
-import { needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
+import { createReaderBootstrapKey, needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
 import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
@@ -75,6 +75,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const lastProgressRef = useRef<{ cfi: string; href: string; percentage: number } | null>(
     book.cfi ? { cfi: book.cfi, href: book.chapterHref ?? "", percentage: book.progress } : null,
   );
+  const initialResumeRef = useRef(book.cfi ? { cfi: book.cfi, percentage: book.progress } : null);
   const onProgressRef = useRef(onProgress);
   const onOpenNotesRef = useRef(onOpenNotes);
   const initialPreviewRef = useRef(initialPreviewCfi);
@@ -103,7 +104,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const iframeDiagnosticValue = new URLSearchParams(window.location.search).get("epubIframeDiagnostic");
   const iframeDiagnostic = iframeDiagnosticValue === "false" || iframeDiagnosticValue === "true";
   const allowScriptedContent = iframeDiagnosticValue === "true";
-
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -112,6 +112,15 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   // navigation implementation and preserves native text selection.
   const [readingMode, setReadingMode] = useState<ReadingMode>(() => mobileWeb || localStorage.getItem("reader-mode") === "scroll" ? "scroll" : "paged");
   const useIosPseudoPagination = false;
+  const readerBootstrapKey = createReaderBootstrapKey({
+    bookId: book.id,
+    readingMode,
+    allowScriptedContent,
+    iframeDiagnostic,
+    iosWeb,
+    mobileReader,
+    useIosPseudoPagination,
+  });
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
     const value = localStorage.getItem("reader-theme");
     return value === "light" || value === "dark" ? value : "paper";
@@ -493,7 +502,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     } catch { /* a view may be disposed while a preview is closing */ }
   }, [locateCfi]);
 
-  const restoreReadingPosition = useCallback(async (cfi: string) => {
+  const restoreReadingPosition = useCallback(async (cfi: string, savedPercentage: number) => {
     const rendition = renditionRef.current;
     const epubBook = epubBookRef.current;
     if (!rendition || !epubBook) return;
@@ -503,14 +512,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
     const restored = location?.start?.percentage ?? (location?.start?.cfi ? epubBook.locations.percentageFromCfi(location.start.cfi) : undefined);
     // CFI is the primary anchor. Percentage only provides a safe second attempt
     // when WebKit leaves a scrolled-doc iframe materially away from that anchor.
-    if (needsMobileResumePercentageFallback(book.progress, restored)) {
-      const fallback = epubBook.locations.cfiFromPercentage(book.progress);
+    if (needsMobileResumePercentageFallback(savedPercentage, restored)) {
+      const fallback = epubBook.locations.cfiFromPercentage(savedPercentage);
       if (fallback) {
         await rendition.display(fallback);
         await locateCfi(fallback);
       }
     }
-  }, [book.progress, locateCfi]);
+  }, [locateCfi]);
 
   useEffect(() => {
     if (!mobileReader) return;
@@ -800,7 +809,9 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           previewingRef.current = true;
           setReturnAvailable(Boolean(initialReturnCfiRef.current));
         }
-        const resumeCfi = initialTarget ? null : displayedCfiRef.current;
+        const initialResume = initialResumeRef.current;
+        const resumeCfi = initialTarget ? null : initialResume?.cfi ?? displayedCfiRef.current;
+        const resumePercentage = initialResume?.percentage ?? lastProgressRef.current?.percentage ?? 0;
         const restoreInitialProgress = shouldRestoreMobileResume({ mobileReader, readingMode, resumeCfi, initialTarget });
         restoringInitialProgressRef.current = restoreInitialProgress;
         try {
@@ -815,7 +826,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         }
         if (initialTarget) await focusCfi(initialTarget);
         else if (restoreInitialProgress && resumeCfi) {
-          try { await restoreReadingPosition(resumeCfi); }
+          try { await restoreReadingPosition(resumeCfi, resumePercentage); }
           finally {
             restoringInitialProgressRef.current = false;
             rendition.reportLocation();
@@ -837,7 +848,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
       renditionRef.current?.destroy(); epubBookRef.current?.destroy();
       renditionRef.current = null; epubBookRef.current = null;
     };
-  }, [allowScriptedContent, book.id, iframeDiagnostic, iosWeb, mobileReader, readingMode, useIosPseudoPagination, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, restoreReadingPosition, showSelectionToolbar, toggleMobileControls, turnPage]);
+  }, [readerBootstrapKey, flushProgress, focusCfi, followInternalLink, handleKey, recordIframeDiagnostic, restoreReadingPosition, showSelectionToolbar, toggleMobileControls, turnPage]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
