@@ -12,6 +12,13 @@
 - 回归 Desktop；
 - 不允许一个端修好另一个端坏掉。
 
+## V1 Desktop Compatibility / Parity Pass
+
+- `npm run test:desktop-bundle` 会先生成 Desktop 前端产物，再检查其内容中不存在 MSAL、Microsoft 登录、Graph 或 Web sync 的稳定特征；不依赖 Vite hash 文件名。
+- Desktop build 必须保留 Tauri provider 与 Desktop shell，但不得携带 Web/PWA 的 `WebRuntime`、`WebStatus`、`BackgroundSync`、WebProvider 或 Microsoft Graph auth 依赖链。
+- Web build 仍应包含 `WebRuntime`、WebProvider、sync engine 与 Microsoft auth chunk；这属于 Web/PWA 正常功能，不应用 Desktop guard 检查。
+- MSI 的 WiX 版本单独使用 `bundle.windows.wix.version` 的数字映射；应用与 Cargo SemVer 仍为 `0.3.0-alpha.1`。完整 Tauri 打包应同时产出 EXE、NSIS 与 MSI。
+
 具体 Mobile V1 验收用例在各 Task 确定时逐步补充，不在此提前假设。
 
 ## Task 5B：Local-first 启动与后台同步

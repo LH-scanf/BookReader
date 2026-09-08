@@ -24,19 +24,23 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chooseAndImportEpubs, chooseCustomCover, chooseLibraryDirectory, deleteBook, isDesktopApp, subscribeLibraryChanges, loadAnnotations, loadBookNote, loadLibrary, persistBookNote, removeAnnotation, renameBook, restoreBookCover, saveAnnotation, setBookFinished } from "./library-api";
 import { DesktopAppShell } from "./desktop/DesktopAppShell";
-import { MobileLibraryView } from "./mobile/MobileLibraryView";
 import { MobileAppShell } from "./mobile/MobileAppShell";
-import { MobileNotesWorkspace } from "./mobile/MobileNotesWorkspace";
-import { MobileSettingsView } from "./mobile/MobileSettingsView";
 import { recordMobileBookOpen } from "./mobile/mobile-recent-books";
 import type { AnnotationRecord, BookNote, BookRecord, LibraryFilter, LibraryState, View } from "./types";
 import { getCurrentUiMode, useUiMode } from "./ui/ui-mode";
 
-const CloudSettings = lazy(() => import("./CloudSettings"));
+const CloudSettings = __WEB_BUILD__ ? lazy(() => import("./CloudSettings")) : null;
 const TrashSettings = lazy(() => import("./TrashSettings"));
 const PwaUpdateSettings = __WEB_BUILD__ ? lazy(() => import("./PwaUpdateSettings")) : null;
+const MobileLibraryView = __WEB_BUILD__ ? lazy(() => import("./mobile/MobileLibraryView").then(({ MobileLibraryView }) => ({ default: MobileLibraryView }))) : null;
+const MobileNotesWorkspace = __WEB_BUILD__ ? lazy(() => import("./mobile/MobileNotesWorkspace").then(({ MobileNotesWorkspace }) => ({ default: MobileNotesWorkspace }))) : null;
+const MobileSettingsView = __WEB_BUILD__ ? lazy(() => import("./mobile/MobileSettingsView").then(({ MobileSettingsView }) => ({ default: MobileSettingsView }))) : null;
 const EpubReader = lazy(() => import("./EpubReader"));
 type Appearance = "light" | "dark";
+
+const removeMobileCachedBook = __WEB_BUILD__
+  ? (book: BookRecord) => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }
+  : (_book: BookRecord) => undefined;
 
 function App() {
   const [appearance, setAppearance] = useState<Appearance>(() => document.documentElement.dataset.appearance === "dark" ? "dark" : "light");
@@ -245,8 +249,8 @@ function App() {
     <LibrarySetup busy={busy} onSelect={selectLibrary} />
   ) : view === "notes" ? (
     <NotesWorkspace books={library.books} selectedBookId={notesBookId} onSelectBook={setNotesBookId} onMessage={setMessage} onOpenQuote={openReader} />
-  ) : uiMode === "mobile" ? (
-    <MobileLibraryView books={library.books} busy={busy} onImport={importBooks} onOpenBook={openReader} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onRemoveLocal={(book) => { void import("./sync/engine").then(({ evictBook }) => evictBook(book.id)).catch((error) => window.alert(String(error))); }} />
+  ) : uiMode === "mobile" && MobileLibraryView ? (
+    <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在载入书库…</div>}><MobileLibraryView books={library.books} busy={busy} onImport={importBooks} onOpenBook={openReader} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onRemoveLocal={removeMobileCachedBook} /></Suspense>
   ) : (
     <LibraryView filter={filter} search={search} books={library.books} busy={busy} onSearch={setSearch} onImport={importBooks} onRename={(book, title) => void renameBookTitle(book, title)} onChangeCover={(book) => void changeBookCover(book)} onRestoreCover={(book) => void resetBookCover(book)} onSetFinished={(book) => void changeBookStatus(book)} onDelete={(book) => void removeBook(book)} onOpenBook={(book) => { setActiveBook(book); setReaderTargetCfi(null); setNotesBookId(book.id); setView("reader"); }} />
   );
@@ -605,8 +609,8 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
     setReflectionDrafts((current) => ({ ...current, [record.id]: record.reflection }));
   };
 
-  if (getCurrentUiMode() === "mobile") {
-    return <MobileNotesWorkspace
+  if (getCurrentUiMode() === "mobile" && MobileNotesWorkspace) {
+    return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在载入笔记…</div>}><MobileNotesWorkspace
       books={books}
       selectedBook={selectedBook}
       annotations={displayedAnnotations}
@@ -625,7 +629,7 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
       onCancelReflection={discardReflectionDraft}
       onSaveReflection={(annotation) => saveReflection(annotation, true)}
       onDeleteAnnotation={(annotation) => deleteRecord(annotation, { skipConfirmation: true, silent: true })}
-    />;
+    /></Suspense>;
   }
 
   return (
@@ -696,7 +700,7 @@ function NotesWorkspace({ books, selectedBookId, onSelectBook, onMessage, onOpen
 }
 
 function SettingsView({ libraryDir, busy, onSelectLibrary, appearance, onAppearanceChange }: { libraryDir: string | null; busy: boolean; onSelectLibrary: () => void; appearance: Appearance; onAppearanceChange: (appearance: Appearance) => void }) {
-  if (getCurrentUiMode() === "mobile") return <MobileSettingsView appearance={appearance} onAppearanceChange={onAppearanceChange} />;
+  if (getCurrentUiMode() === "mobile" && MobileSettingsView) return <Suspense fallback={<div className="page-loading"><span className="loading-spinner" />正在载入设置…</div>}><MobileSettingsView appearance={appearance} onAppearanceChange={onAppearanceChange} /></Suspense>;
   return (
     <div className="settings-page">
       <p className="eyebrow">BookReader</p><h1>设置</h1>
@@ -704,7 +708,7 @@ function SettingsView({ libraryDir, busy, onSelectLibrary, appearance, onAppeara
         <div><h2>书库与同步</h2><p>书籍、进度和未来的批注会保存在这个普通文件夹中。</p></div>
         <div className="directory-row"><div><span>当前书库目录</span><code>{libraryDir ?? "尚未选择"}</code></div><button className="secondary-button" disabled={busy} onClick={onSelectLibrary}>{libraryDir ? "切换目录" : "选择目录"}</button></div>
         <div className="status-row">{libraryDir ? <><span className="sync-dot" />目录可用；可交由 OneDrive 等工具同步</> : "选择目录后才能导入图书"}</div>
-      </section> : <Suspense fallback={<p>正在加载同步设置…</p>}><CloudSettings /></Suspense>}
+      </section> : CloudSettings && <Suspense fallback={<p>正在加载同步设置…</p>}><CloudSettings /></Suspense>}
       {PwaUpdateSettings && !isDesktopApp() && <Suspense fallback={null}><PwaUpdateSettings /></Suspense>}
       <Suspense fallback={null}><TrashSettings /></Suspense>
       <section className="settings-card appearance-card"><div><h2>外观</h2><p>应用于书库、整书笔记和设置，自动记住选择。阅读页的明亮、纸张和夜间主题独立设置。</p></div><div className="appearance-options" role="group" aria-label="应用外观"><button aria-pressed={appearance === "light"} onClick={() => onAppearanceChange("light")}><Sun size={18} />浅色</button><button aria-pressed={appearance === "dark"} onClick={() => onAppearanceChange("dark")}><Moon size={18} />深色</button></div></section>

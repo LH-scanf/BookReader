@@ -1,11 +1,13 @@
 import type { LibraryProvider } from "./library/LibraryProvider";
 import type { AnnotationInput, ProgressInput } from "./types";
-import { isDesktopApp } from "./platform";
 export { isDesktopApp, subscribeLibraryChanges, subscribeBeforeClose } from "./platform";
 
 let provider: Promise<LibraryProvider> | undefined;
+const loadProvider = __WEB_BUILD__
+  ? () => import("./library/WebProvider")
+  : () => import("./library/TauriProvider");
 export function getLibraryProvider(): Promise<LibraryProvider> {
-  return provider ??= isDesktopApp() ? import("./library/TauriProvider") : import("./library/WebProvider");
+  return provider ??= loadProvider();
 }
 export const loadLibrary = () => getLibraryProvider().then((p) => p.loadLibrary());
 export const chooseLibraryDirectory = () => getLibraryProvider().then((p) => p.chooseLibraryDirectory());

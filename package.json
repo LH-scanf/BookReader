@@ -10,6 +10,7 @@
     "desktop": "tauri dev",
     "tauri": "tauri",
     "build:desktop": "tsc && vite build --mode desktop",
+    "test:desktop-bundle": "npm run build:desktop && node scripts/assert-desktop-bundle-isolation.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

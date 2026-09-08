@@ -30,6 +30,11 @@
       "nsis",
       "msi"
     ],
+    "windows": {
+      "wix": {
+        "version": "0.3.0.1"
+      }
+    },
     "icon": [
       "icons/icon.ico"
     ],
