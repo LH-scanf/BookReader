@@ -17,7 +17,34 @@
 - `npm run test:desktop-bundle` 会先生成 Desktop 前端产物，再检查其内容中不存在 MSAL、Microsoft 登录、Graph 或 Web sync 的稳定特征；不依赖 Vite hash 文件名。
 - Desktop build 必须保留 Tauri provider 与 Desktop shell，但不得携带 Web/PWA 的 `WebRuntime`、`WebStatus`、`BackgroundSync`、WebProvider 或 Microsoft Graph auth 依赖链。
 - Web build 仍应包含 `WebRuntime`、WebProvider、sync engine 与 Microsoft auth chunk；这属于 Web/PWA 正常功能，不应用 Desktop guard 检查。
-- MSI 的 WiX 版本单独使用 `bundle.windows.wix.version` 的数字映射；应用与 Cargo SemVer 仍为 `0.3.0-alpha.1`。完整 Tauri 打包应同时产出 EXE、NSIS 与 MSI。
+- MSI 的 WiX 版本使用 `bundle.windows.wix.version`；V1 正式版本为 `1.0.0`。完整 Tauri 打包应同时产出 EXE、NSIS 与 MSI。
+
+## V1 Release Smoke
+
+以下仅供真人发布前验收；自动化、构建与专项协议测试不能替代这些真实设备路径。
+
+### iPhone / PWA
+
+- [ ] 冷启动与已登录启动均可进入本机书库；断网重开仍可阅读已下载图书。
+- [ ] 打开最近阅读图书，Reader 恢复到正确位置；连续阅读不反复 Loading 或重建 Reader。
+- [ ] 新增高亮、写感悟、编辑已有感悟；Reader Notes、回到原文与 Full Notes 均可用。
+- [ ] 退出再进入后进度正确；OneDrive 自动恢复/同步，网络异常不阻塞阅读。
+- [ ] PWA 更新检查与应用更新路径可用。
+
+### Windows Desktop
+
+- [ ] Desktop 启动；窗口缩窄至 ≤720px 仍为 Desktop shell。
+- [ ] 打开 EPUB，分页、上一页/下一页、键盘快捷键与目录跳转正常。
+- [ ] 高亮、annotation / BookNote 编辑，以及关闭重开后的阅读位置恢复正常。
+- [ ] OneDrive 本地同步目录可加载；删除 → 回收站 → 恢复正常。
+- [ ] 至少通过 MSI 或 NSIS 中一种完成实际安装并启动。
+
+### 跨设备
+
+- [ ] Windows 编辑一个共享 annotation 或 BookNote，经 OneDrive 后 iPhone PWA 可重新加载看到结果。
+- [ ] iPhone 修改另一条 annotation 或 BookNote，经同步后 Windows 可重新加载看到结果。
+
+无需为 Release Smoke 主动制造复杂冲突；冲突 resolver 已由自动化和专项测试覆盖。
 
 具体 Mobile V1 验收用例在各 Task 确定时逐步补充，不在此提前假设。
 

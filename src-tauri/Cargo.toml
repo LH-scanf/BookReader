@@ -1,6 +1,6 @@
 [package]
 name = "bookreader"
-version = "0.3.0-alpha.1"
+version = "1.0.0"
 description = "A local-first EPUB reader for Windows"
 authors = ["BookReader"]
 edition = "2021"
