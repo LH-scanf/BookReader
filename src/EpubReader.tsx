@@ -7,7 +7,7 @@ import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
 import { createReaderBootstrapKey, needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
-import { isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
+import { createRenditionSettings, isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
 import { MobileReaderNotesSheet, sortAnnotationsByReadingOrder } from "./reader/ui/MobileReaderNotesSheet";
@@ -619,14 +619,14 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         setToc(navigation.toc ?? []);
         await epubBook.locations.generate(1400);
         if (cancelled) return;
+        const renditionSettings = createRenditionSettings(readingMode, useIosPseudoPagination);
         const rendition = epubBook.renderTo(viewer, {
           width: "100%", height: "100%",
-          // iOS pseudo pagination uses a vertically laid out document. It
-          // avoids WebKit's blank rendering of horizontally shifted CSS columns.
-          flow: useIosPseudoPagination ? "scrolled-doc" : readingMode === "paged" ? "paginated" : "scrolled-doc",
-          overflow: useIosPseudoPagination ? "scroll" : "hidden",
-          manager: "default",
-          spread: "none", infinite: false, allowScriptedContent,
+          // Continuous scrolling keeps following spine files available. This is
+          // essential for EPUBs whose TOC points at a chapter-cover document
+          // while its prose lives in the next split document.
+          ...renditionSettings,
+          spread: "none", allowScriptedContent,
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode, useIosPseudoPagination);

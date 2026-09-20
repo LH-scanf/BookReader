@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, swipeDirection } from "../src/reader/reader-ui";
+import { createRenditionSettings, isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, swipeDirection } from "../src/reader/reader-ui";
 
 describe("reader UI helpers", () => {
   it("detects iPhone and touch iPad user agents without matching desktop Mac", () => {
@@ -20,6 +20,15 @@ describe("reader UI helpers", () => {
 
   it("resolves a cross-chapter footnote relative to the current section", () => {
     expect(resolveEpubRelativePath("OEBPS/Text/chapter-2.xhtml", "../Notes/footnotes.xhtml")).toBe("OEBPS/Notes/footnotes.xhtml");
+  });
+
+  it("keeps following spine documents available in scroll mode", () => {
+    expect(createRenditionSettings("scroll")).toEqual({
+      flow: "scrolled-continuous", overflow: "scroll", manager: "continuous", infinite: true,
+    });
+    expect(createRenditionSettings("paged")).toEqual({
+      flow: "paginated", overflow: "hidden", manager: "default", infinite: false,
+    });
   });
 
   it("accepts quick, horizontal page swipes while rejecting vertical or slow motion", () => {

@@ -190,6 +190,7 @@ iOS 字体自动放大问题已由 EPUB iframe `text-size-adjust: 100%` 修复�
 | MOBILE-RESUME-02 | 恢复过程先产生章节较前的 relocated | 该临时 CFI/百分比不写入 progress；完成恢复后才恢复正常 progress 更新。 |
 | MOBILE-RESUME-03 | 保存 CFI 无效，或 CFI 恢复后的 percentage 与保存值明显偏离 | Reader 仍可打开；优先 CFI，必要时用已有 locations percentage CFI 做一次无提示 fallback。 |
 | MOBILE-RESUME-04 | 从笔记或搜索进入 preview，及 Desktop 重开图书 | 笔记继续使用 focus/highlight；Desktop 不增加 Mobile scroll restore。 |
+| MOBILE-SPLIT-SPINE-01 | 在 Mobile 滚动模式从目录跳转到“封面/插图文件”与下一 spine 正文分离的章节 | 章节封面后可继续向下滚动到正文；不出现仅封面、滚动高度为零的状态。 |
 
 ## Task 4A：Mobile 完整笔记页面骨架
 

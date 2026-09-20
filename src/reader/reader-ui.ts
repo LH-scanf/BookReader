@@ -37,6 +37,21 @@ export function resolveEpubRelativePath(currentHref: string, targetPath: string)
   return parts.join("/");
 }
 
+/**
+ * EPUBs are allowed to split one logical chapter across several spine files.
+ * A scroll reader must therefore keep adjacent spine items rendered; the
+ * default epub.js manager only displays the target document.
+ */
+export function createRenditionSettings(readingMode: "paged" | "scroll", useIosPseudoPagination = false) {
+  const scrolling = useIosPseudoPagination || readingMode === "scroll";
+  return {
+    flow: scrolling ? "scrolled-continuous" : "paginated",
+    overflow: scrolling ? "scroll" : "hidden",
+    manager: scrolling ? "continuous" : "default",
+    infinite: scrolling,
+  };
+}
+
 export function swipeDirection(
   start: { x: number; y: number },
   end: { x: number; y: number },

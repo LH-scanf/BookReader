@@ -45,6 +45,7 @@ Mobile 侧产品方向保持：
 ### 2.3 Mobile Reader
 
 - Mobile V1 以连续上下滚动为稳定默认阅读方式。
+- 滚动模式使用 epub.js 的连续 spine 管理器；目录命中仅含章节封面/插图的分割文件时，紧随其后的正文文件仍会自动接续并可继续下滑。
 - 默认沉浸阅读，工具栏隐藏。
 - 轻点中央区域显示 / 隐藏 Reader controls。
 - 顶部：返回、书名/章节、更多。
@@ -186,6 +187,10 @@ Mobile 侧产品方向保持：
 由此确认问题不是 OneDrive，而是 `scrolled-doc` 恢复时仅 `rendition.display(cfi)` 不足以把 viewport 恢复到 CFI 对应正文位置。
 
 已增加 Mobile CFI restore 逻辑，在 layout ready 后恢复真实纵向位置。
+
+### 分割章节目录跳转
+
+2026-09-20 修复：部分 EPUB 会把同一章拆为“章节封面”与“正文”两个连续 spine 文件，而目录仅指向前者。此前滚动模式使用 `default` manager 且关闭连续加载，跳转后只能看到封面页，滚动容器没有后续内容。现在滚动模式使用 `continuous` manager、`scrolled-continuous` flow 和纵向滚动容器，正文 spine 会自动接续；分页模式保持原有单章节展示行为。
 
 相关提交：
 
