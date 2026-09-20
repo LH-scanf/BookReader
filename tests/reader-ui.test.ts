@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRenditionSettings, isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, swipeDirection } from "../src/reader/reader-ui";
+import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, swipeDirection } from "../src/reader/reader-ui";
 
 describe("reader UI helpers", () => {
   it("detects iPhone and touch iPad user agents without matching desktop Mac", () => {
@@ -32,6 +32,17 @@ describe("reader UI helpers", () => {
     expect(createRenditionSettings("paged")).toEqual({
       flow: "paginated", overflow: "hidden", manager: "default", infinite: false,
     });
+  });
+
+  it("moves a mobile chapter cover into its separate prose spine without skipping ordinary entries", () => {
+    expect(shouldAdvancePastMobileChapterCover({ mobileReader: true, readingMode: "scroll", chapterLabel: "第 17 章 双面人", textLength: 12, hasIllustration: true })).toBe(true);
+    expect(shouldAdvancePastMobileChapterCover({ mobileReader: true, readingMode: "scroll", chapterLabel: "封面", textLength: 0, hasIllustration: true })).toBe(false);
+    expect(shouldAdvancePastMobileChapterCover({ mobileReader: false, readingMode: "scroll", chapterLabel: "第 17 章 双面人", textLength: 12, hasIllustration: true })).toBe(false);
+  });
+
+  it("retains the TOC chapter label for an adjacent split spine item", () => {
+    const items = [{ href: "text/part0021_split_000.html#chapter", label: "第 17 章 双面人" }];
+    expect(findTocItemForSpineHref(items, "text/part0021_split_001.html")).toBe(items[0]);
   });
 
   it("accepts quick, horizontal page swipes while rejecting vertical or slow motion", () => {

@@ -57,6 +57,35 @@ export function createRenditionSettings(
   };
 }
 
+export function shouldAdvancePastMobileChapterCover({
+  mobileReader,
+  readingMode,
+  chapterLabel,
+  textLength,
+  hasIllustration,
+}: {
+  mobileReader: boolean;
+  readingMode: "paged" | "scroll";
+  chapterLabel: string;
+  textLength: number;
+  hasIllustration: boolean;
+}) {
+  return mobileReader
+    && readingMode === "scroll"
+    && /(?:第\s*\d+\s*章|chapter\s+\d+)/i.test(chapterLabel)
+    && hasIllustration
+    && textLength <= 160;
+}
+
+export function findTocItemForSpineHref<T extends { href: string }>(items: T[], href: string) {
+  const path = href.split("#")[0];
+  const exact = items.find((item) => path.includes(item.href.split("#")[0]));
+  if (exact) return exact;
+  const splitStem = (value: string) => value.split("#")[0].replace(/_split_\d+(?=\.[^/]+$)/, "_split");
+  const stem = splitStem(path);
+  return items.find((item) => splitStem(item.href) === stem);
+}
+
 export function swipeDirection(
   start: { x: number; y: number },
   end: { x: number; y: number },

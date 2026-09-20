@@ -7,7 +7,7 @@ import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
 import { createReaderBootstrapKey, needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
-import { createRenditionSettings, isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, swipeDirection } from "./reader/reader-ui";
+import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
 import { MobileReaderNotesSheet, sortAnnotationsByReadingOrder } from "./reader/ui/MobileReaderNotesSheet";
@@ -785,7 +785,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           const calculated = location.start.percentage ?? epubBook.locations.percentageFromCfi(cfi) ?? 0;
           const next = Math.min(1, Math.max(0, calculated));
           setPercentage(next);
-          const item = flattenToc(navigation.toc ?? []).find((entry) => href.includes(entry.href.split("#")[0]));
+          const item = findTocItemForSpineHref(flattenToc(navigation.toc ?? []), href);
           const label = item?.label?.trim() || href || "正文";
           chapterRef.current = label; chapterHrefRef.current = href; setChapter(label);
           const orientationPlan = orientationRestorePlanRef.current;
@@ -911,7 +911,22 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const goTo = async (href: string, label: string) => {
     localNavigationAtRef.current = Date.now();
     previewingRef.current = false; returnCfiRef.current = null; setReturnAvailable(false);
-    setChapter(label); setTocOpen(false); await renditionRef.current?.display(href);
+    setChapter(label); setTocOpen(false);
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    await rendition.display(href);
+    // Mobile keeps the stable one-document renderer. Some converted EPUBs use
+    // a chapter-title/illustration spine item followed by a separate prose
+    // spine item; advance only that recognizable cover-only chapter item.
+    await waitForAnimationFrames();
+    const rawContents = rendition.getContents() as unknown as EpubContents[] | EpubContents;
+    const contents = (Array.isArray(rawContents) ? rawContents : [rawContents])[0];
+    const document = contents?.document;
+    const textLength = document?.body?.textContent?.replace(/\s+/g, "").length ?? 0;
+    const hasIllustration = Boolean(document?.querySelector("img, svg"));
+    if (shouldAdvancePastMobileChapterCover({ mobileReader, readingMode, chapterLabel: label, textLength, hasIllustration })) {
+      await rendition.next();
+    }
   };
   const beginPreview = async (cfi: string) => {
     if (!renditionRef.current) return;
