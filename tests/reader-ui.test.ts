@@ -26,6 +26,9 @@ describe("reader UI helpers", () => {
     expect(createRenditionSettings("scroll")).toEqual({
       flow: "scrolled-continuous", overflow: "scroll", manager: "continuous", infinite: true,
     });
+    expect(createRenditionSettings("scroll", false, false)).toEqual({
+      flow: "scrolled-doc", overflow: "hidden", manager: "default", infinite: false,
+    });
     expect(createRenditionSettings("paged")).toEqual({
       flow: "paginated", overflow: "hidden", manager: "default", infinite: false,
     });

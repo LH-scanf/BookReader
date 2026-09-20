@@ -42,13 +42,18 @@ export function resolveEpubRelativePath(currentHref: string, targetPath: string)
  * A scroll reader must therefore keep adjacent spine items rendered; the
  * default epub.js manager only displays the target document.
  */
-export function createRenditionSettings(readingMode: "paged" | "scroll", useIosPseudoPagination = false) {
+export function createRenditionSettings(
+  readingMode: "paged" | "scroll",
+  useIosPseudoPagination = false,
+  supportsContinuousSpine = true,
+) {
   const scrolling = useIosPseudoPagination || readingMode === "scroll";
+  const continuous = scrolling && supportsContinuousSpine;
   return {
-    flow: scrolling ? "scrolled-continuous" : "paginated",
-    overflow: scrolling ? "scroll" : "hidden",
-    manager: scrolling ? "continuous" : "default",
-    infinite: scrolling,
+    flow: scrolling ? continuous ? "scrolled-continuous" : "scrolled-doc" : "paginated",
+    overflow: continuous ? "scroll" : "hidden",
+    manager: continuous ? "continuous" : "default",
+    infinite: continuous,
   };
 }
 

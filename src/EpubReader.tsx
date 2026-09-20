@@ -619,10 +619,13 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         setToc(navigation.toc ?? []);
         await epubBook.locations.generate(1400);
         if (cancelled) return;
-        const renditionSettings = createRenditionSettings(readingMode, useIosPseudoPagination);
+        // The mobile full-screen iframe has a separate, proven scrolled-doc
+        // layout. ContinuousViewManager does not complete its first frame
+        // reliably there, so reserve continuous spine rendering for Windows.
+        const renditionSettings = createRenditionSettings(readingMode, useIosPseudoPagination, !mobileReader);
         const rendition = epubBook.renderTo(viewer, {
           width: "100%", height: "100%",
-          // Continuous scrolling keeps following spine files available. This is
+          // Windows scrolling keeps following spine files available. This is
           // essential for EPUBs whose TOC points at a chapter-cover document
           // while its prose lives in the next split document.
           ...renditionSettings,
