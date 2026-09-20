@@ -38,6 +38,22 @@ export function resolveEpubRelativePath(currentHref: string, targetPath: string)
 }
 
 /**
+ * EPUB 2 books sometimes declare XHTML content with a `.html` suffix. EPUB.js
+ * otherwise infers HTML from that suffix and applies HTML parsing, which does
+ * not preserve XML-only self-closing elements such as `<title/>`.
+ */
+export function shouldParseEpubResourceAsXhtml(
+  requestPath: string,
+  manifest: Record<string, { href: string; type: string }>,
+  resolvePath: (path: string) => string,
+) {
+  const normalize = (path: string) => decodeURIComponent(path).split(/[?#]/, 1)[0].replace(/^\/+/, "");
+  const requested = normalize(resolvePath(requestPath));
+  return Object.values(manifest).some((item) => item.type === "application/xhtml+xml"
+    && normalize(resolvePath(item.href)) === requested);
+}
+
+/**
  * EPUBs are allowed to split one logical chapter across several spine files.
  * A scroll reader must therefore keep adjacent spine items rendered; the
  * default epub.js manager only displays the target document.

@@ -7,7 +7,7 @@ import ePub, { EpubCFI, type Book, type NavItem, type Rendition } from "epubjs";
 import { installPreciseMapping } from "./reader/precise-mapping";
 import { captureMobileOrientationRestore, hasOrientationViewportChange, shouldRestoreMobileOrientation, type MobileOrientationRestorePlan, type ReaderViewport } from "./reader/mobile-orientation-restore";
 import { createReaderBootstrapKey, needsMobileResumePercentageFallback, shouldPersistRelocated, shouldRestoreMobileResume } from "./reader/mobile-resume";
-import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, swipeDirection } from "./reader/reader-ui";
+import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, shouldParseEpubResourceAsXhtml, swipeDirection } from "./reader/reader-ui";
 import { MobileReaderChrome } from "./reader/ui/MobileReaderChrome";
 import { MobileDeleteAnnotationDialog } from "./reader/ui/MobileDeleteAnnotationDialog";
 import { MobileReaderNotesSheet, sortAnnotationsByReadingOrder } from "./reader/ui/MobileReaderNotesSheet";
@@ -617,6 +617,17 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
         const navigation = await epubBook.loaded.navigation;
         if (cancelled) return;
         setToc(navigation.toc ?? []);
+        // EPUB 2 permits XHTML documents to use a `.html` extension. EPUB.js
+        // infers HTML from that suffix and loses XML-self-closing content such
+        // as `<title/>`, leaving the iframe body empty. Read declared XHTML
+        // spine resources with the manifest's XML media type instead.
+        const defaultLoad = epubBook.load.bind(epubBook);
+        epubBook.load = ((path: string) => {
+          if (epubBook.archived && shouldParseEpubResourceAsXhtml(path, epubBook.packaging.manifest, epubBook.resolve.bind(epubBook))) {
+            return epubBook.archive.request(epubBook.resolve(path), "xhtml");
+          }
+          return defaultLoad(path);
+        }) as typeof epubBook.load;
         await epubBook.locations.generate(1400);
         if (cancelled) return;
         // The mobile full-screen iframe has a separate, proven scrolled-doc

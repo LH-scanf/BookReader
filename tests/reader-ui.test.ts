@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, swipeDirection } from "../src/reader/reader-ui";
+import { createRenditionSettings, findTocItemForSpineHref, isIOSWebDevice, isMobileWebDevice, readerProgressLabel, resolveEpubRelativePath, shouldAdvancePastMobileChapterCover, shouldParseEpubResourceAsXhtml, swipeDirection } from "../src/reader/reader-ui";
 
 describe("reader UI helpers", () => {
   it("detects iPhone and touch iPad user agents without matching desktop Mac", () => {
@@ -20,6 +20,16 @@ describe("reader UI helpers", () => {
 
   it("resolves a cross-chapter footnote relative to the current section", () => {
     expect(resolveEpubRelativePath("OEBPS/Text/chapter-2.xhtml", "../Notes/footnotes.xhtml")).toBe("OEBPS/Notes/footnotes.xhtml");
+  });
+
+  it("uses an EPUB manifest's XHTML media type instead of a chapter file's html suffix", () => {
+    const manifest = {
+      chapter: { href: "html/chapter.html", type: "application/xhtml+xml" },
+      style: { href: "html/book.css", type: "text/css" },
+    };
+    const resolve = (path: string) => `/OEBPS/${path.replace(/^\/OEBPS\//, "")}`;
+    expect(shouldParseEpubResourceAsXhtml("/OEBPS/html/chapter.html#ch1", manifest, resolve)).toBe(true);
+    expect(shouldParseEpubResourceAsXhtml("html/book.css", manifest, resolve)).toBe(false);
   });
 
   it("keeps following spine documents available in scroll mode", () => {
