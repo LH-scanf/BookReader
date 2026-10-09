@@ -16,13 +16,33 @@
 
 </div>
 
-## 在哪里阅读
+## Preview
 
-| Windows Desktop | iPhone PWA |
-| --- | --- |
-| 安装桌面程序，选择本机书库，打开 EPUB 继续阅读。 | 从已部署的 HTTPS 站点添加到主屏幕，随时打开本机书库。 |
+<p align="center">
+  <img src="assets/screenshots/library.png" alt="BookReader Windows 书库页" width="100%">
+  <br><sub>你的 EPUB 书库，随时继续阅读。</sub>
+</p>
 
-> **产品截图待补。** 仓库目前没有可用的实机截图。需要两张脱敏素材：Windows 桌面端的书库与阅读界面、iPhone Safari 添加到主屏幕后启动的 Mobile 阅读界面。补齐前不展示占位图或模拟 UI。
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/screenshots/reader.png" alt="BookReader Windows 阅读页与设置栏" width="85%">
+      <br><b>沉浸阅读</b>
+      <br><sub>按喜好调整字号、主题与阅读方式。</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/screenshots/notes.png" alt="BookReader Windows 整书笔记页" width="85%">
+      <br><b>摘录与思考</b>
+      <br><sub>保存触动你的文字，整理阅读感悟。</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="assets/screenshots/mobile.jpg" alt="BookReader iPhone PWA 阅读设置页" width="280">
+  <br><b>随身阅读</b>
+  <br><sub>在 iPhone PWA 中调整阅读设置。</sub>
+</p>
 
 ## 为阅读而做
 
