@@ -1,74 +1,63 @@
 <div align="center">
 
-<img src="public/favicon.svg" alt="BookReader 图标" width="76" height="76">
+<img src="public/favicon.svg" alt="BookReader 标识" width="68" height="68">
 
 # BookReader
 
-**Read quietly. Keep what matters.**
+**Read locally. Continue anywhere.**
 
-一款本地优先的 EPUB 阅读器。Windows 桌面端与 iPhone PWA 各有适合自己的界面，让阅读、摘录和笔记保持简单。
+本地优先的 EPUB 阅读器。Windows 与 iPhone 各自保存阅读数据，连接 OneDrive 后可选择同步书库、进度与笔记。
 
-[![Release v0.2.1](https://img.shields.io/badge/release-v0.2.1-667C7A?style=flat-square)](https://github.com/LH-scanf/BookReader/releases/tag/v0.2.1)
-![Windows Desktop](https://img.shields.io/badge/Windows-Desktop-667C7A?style=flat-square)
-![iPhone PWA](https://img.shields.io/badge/iPhone-PWA-667C7A?style=flat-square)
+<kbd>Windows Desktop</kbd> &nbsp; <kbd>iPhone PWA</kbd> &nbsp; <kbd>EPUB</kbd>
 
-[Download](#download) · [Documentation](docs/README.md) · [Releases](https://github.com/LH-scanf/BookReader/releases)
+[下载 Windows v0.2.1](https://github.com/LH-scanf/BookReader/releases/download/v0.2.1/BookReader_0.2.1_x64-setup.exe) · [查看文档](docs/README.md) · [所有 Releases](https://github.com/LH-scanf/BookReader/releases)
+
+<img src="assets/sync-overview.svg" alt="Windows 和 iPhone 分别保留本地书库，可选择通过 OneDrive 同步；离线仍可阅读" width="100%">
+
+<sub>当前公开 Release 为 Windows v0.2.1。图示中的 V1 跨端同步能力尚未正式发布。</sub>
 
 </div>
 
 ## Preview
 
-<p align="center">
-  <img src="assets/screenshots/library.png" alt="BookReader Windows 书库页" width="100%">
-  <br><sub>你的 EPUB 书库，随时继续阅读。</sub>
-</p>
-
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="assets/screenshots/reader.png" alt="BookReader Windows 阅读页与设置栏" width="85%">
-      <br><b>沉浸阅读</b>
-      <br><sub>按喜好调整字号、主题与阅读方式。</sub>
+      <a href="assets/screenshots/library.png"><img src="assets/screenshots/library.png" alt="Windows 书库页" width="100%"></a>
+      <br><b>把书留在身边</b><br><sub>Windows 书库</sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/screenshots/notes.png" alt="BookReader Windows 整书笔记页" width="85%">
-      <br><b>摘录与思考</b>
-      <br><sub>保存触动你的文字，整理阅读感悟。</sub>
+      <a href="assets/screenshots/reader.png"><img src="assets/screenshots/reader.png" alt="Windows 阅读页与设置栏" width="100%"></a>
+      <br><b>按自己的方式阅读</b><br><sub>Windows 阅读设置</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/notes.png"><img src="assets/screenshots/notes.png" alt="Windows 整书笔记页" width="100%"></a>
+      <br><b>记下触动你的文字</b><br><sub>Windows 整书笔记</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/mobile.jpg"><img src="assets/screenshots/mobile.jpg" alt="iPhone PWA 阅读设置页" width="220"></a>
+      <br><b>换个屏幕，继续读</b><br><sub>iPhone PWA 阅读设置</sub>
     </td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="assets/screenshots/mobile.jpg" alt="BookReader iPhone PWA 阅读设置页" width="280">
-  <br><b>随身阅读</b>
-  <br><sub>在 iPhone PWA 中调整阅读设置。</sub>
-</p>
+<sub>截图来自仓库当前 V1 代码；点击可查看原图。公开安装包 v0.2.1 的界面与功能可能不同。</sub>
 
-## 为阅读而做
+## Cross-device Sync
 
-- **本地优先：** 已保存的书籍、阅读进度和笔记可在离线时使用。
-- **专注 EPUB：** 目录、书内搜索、阅读主题与位置恢复，方便接着读。
-- **留下想法：** 高亮、摘录感悟和整书笔记集中整理。
-- **可选同步：** 连接 OneDrive AppFolder，在设备间同步书库；阅读不依赖登录。
+阅读、进度和笔记先保存在本机；离线时可继续使用已保存的内容。连接 OneDrive 后，Windows 通过本机 OneDrive 同步目录，Web/PWA 通过应用专用目录同步。同步可能延迟；笔记或摘录发生并发修改时，由用户选择保留的版本。详见[数据与同步](docs/DATA_SYNC.md)。
 
-## Download
+## Get Started
 
-**Windows：** 下载 [v0.2.1 安装包](https://github.com/LH-scanf/BookReader/releases/download/v0.2.1/BookReader_0.2.1_x64-setup.exe)，运行安装后选择本机书库并导入 EPUB。[查看该版本说明](https://github.com/LH-scanf/BookReader/releases/tag/v0.2.1)。
+- **Windows：** 安装 [v0.2.1 x64 安装包](https://github.com/LH-scanf/BookReader/releases/download/v0.2.1/BookReader_0.2.1_x64-setup.exe)，选择本地书库并导入 EPUB。
+- **iPhone PWA：** 当前没有公开体验地址。按[部署说明](docs/DEPLOYMENT.md)部署 HTTPS 站点后，在 Safari 中通过「分享」→「添加到主屏幕」安装。
 
-**iPhone PWA：** 当前没有公开体验地址。自行部署 Web 版后，用 iPhone Safari 打开 HTTPS 地址，点「分享」→「添加到主屏幕」，再从主屏幕启动。部署步骤见 [部署文档](docs/DEPLOYMENT.md)。
+## Built With
 
-> 公开下载的 v0.2.1 是较早的 Windows 版本；仓库中的 Mobile/PWA 与同步改进仍处于 V1 发布准备阶段，尚未作为新 Release 发布。[查看当前项目状态](docs/CURRENT_STATE.md)。
+Tauri 2 · React · TypeScript · Rust · epub.js。开发与构建命令见[部署文档](docs/DEPLOYMENT.md)。
 
-## 文档与开发
+## Documentation
 
-从 [文档入口](docs/README.md) 了解项目；按需阅读 [当前状态](docs/CURRENT_STATE.md)、[部署与运行](docs/DEPLOYMENT.md) 和 [架构](docs/ARCHITECTURE.md)。
-
-技术栈：Tauri 2 · React · TypeScript · Rust · epub.js。开发环境需要 Node.js、Rust，以及 Windows 桌面端所需的 WebView2。
-
-```powershell
-npm install
-npm run dev          # Web/PWA
-npm run tauri dev    # Windows Desktop
-```
-
-构建、Microsoft 配置和验收说明见 [部署文档](docs/DEPLOYMENT.md) 与 [测试文档](docs/TESTING.md)。
+[文档入口](docs/README.md) · [当前状态](docs/CURRENT_STATE.md) · [数据与同步](docs/DATA_SYNC.md) · [部署与运行](docs/DEPLOYMENT.md) · [测试](docs/TESTING.md)
