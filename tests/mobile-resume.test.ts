@@ -21,7 +21,7 @@ describe("mobile scrolled-doc resume pipeline", () => {
   });
 
   it("keeps bootstrap identity stable across ordinary progress and CFI updates", () => {
-    const identity = { bookId: "book-a", readingMode: "scroll" as const, allowScriptedContent: false, iframeDiagnostic: false, iosWeb: true, mobileReader: true, useIosPseudoPagination: false };
+    const identity = { bookId: "book-a", readingMode: "scroll" as const, iframeDiagnostic: false, iosWeb: true, mobileReader: true, useIosPseudoPagination: false };
     const first = createReaderBootstrapKey(identity);
     expect(createReaderBootstrapKey({ ...identity })).toBe(first);
     // Live progress, CFI and timestamps are intentionally not bootstrap inputs.

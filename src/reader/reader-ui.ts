@@ -66,6 +66,9 @@ export function createRenditionSettings(
   const scrolling = useIosPseudoPagination || readingMode === "scroll";
   const continuous = scrolling && supportsContinuousSpine;
   return {
+    // EPUB documents are untrusted. epub.js must not add allow-scripts to its
+    // same-origin iframe sandbox, regardless of reader mode or URL parameters.
+    allowScriptedContent: false,
     flow: scrolling ? continuous ? "scrolled-continuous" : "scrolled-doc" : "paginated",
     overflow: continuous ? "scroll" : "hidden",
     manager: continuous ? "continuous" : "default",

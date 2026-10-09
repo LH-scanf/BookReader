@@ -99,11 +99,10 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const mobileWeb = !isDesktopApp() && isMobileWebDevice();
   const mobileReader = getCurrentUiMode() === "mobile";
   const iosWeb = mobileWeb && isIOSWebDevice();
-  // Production-only diagnostic switch. It is intentionally opt-in and does
-  // not change the normal reader's safe sandbox setting.
-  const iframeDiagnosticValue = new URLSearchParams(window.location.search).get("epubIframeDiagnostic");
-  const iframeDiagnostic = iframeDiagnosticValue === "false" || iframeDiagnosticValue === "true";
-  const allowScriptedContent = iframeDiagnosticValue === "true";
+  // Keep iframe event diagnostics in development only; URL parameters must
+  // never grant scripts to untrusted EPUB content.
+  const iframeDiagnostic = import.meta.env.DEV
+    && ["false", "true"].includes(new URLSearchParams(window.location.search).get("epubIframeDiagnostic") ?? "");
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -115,7 +114,6 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
   const readerBootstrapKey = createReaderBootstrapKey({
     bookId: book.id,
     readingMode,
-    allowScriptedContent,
     iframeDiagnostic,
     iosWeb,
     mobileReader,
@@ -640,7 +638,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
           // essential for EPUBs whose TOC points at a chapter-cover document
           // while its prose lives in the next split document.
           ...renditionSettings,
-          spread: "none", allowScriptedContent,
+          spread: "none",
         });
         renditionRef.current = rendition;
         registerBaseTheme(rendition, readingMode, useIosPseudoPagination);
@@ -1075,7 +1073,7 @@ export default function EpubReader({ book, deviceId, initialPreviewCfi = null, o
 
       {returnAvailable && <button className="return-reading-button" onClick={() => void returnToReading()}>{mobileReader ? <CornerUpLeft size={15} /> : <ArrowUpLeft size={16} />}{mobileReader ? "返回阅读位置" : "返回刚才的阅读位置"}</button>}
       {readerMessage && <div className="reader-message" role="status"><span>{readerMessage}</span><button aria-label="关闭提示" onClick={() => setReaderMessage(null)}><X size={14} /></button></div>}
-      {iframeDiagnostic && <aside className="iframe-diagnostic" aria-live="polite"><strong>iframe 诊断：allow-scripts {allowScriptedContent ? "开启" : "关闭"}</strong><span>touchstart {iframeDiagnosticEvents.touchstart ?? 0} · touchend {iframeDiagnosticEvents.touchend ?? 0}</span><span>selectionchange {iframeDiagnosticEvents.selectionchange ?? 0} · selected {iframeDiagnosticEvents.selected ?? 0} · poll {iframeDiagnosticEvents["selection-poll"] ?? 0}</span><small>此模式只记录事件，不翻页、不弹出笔记栏。</small></aside>}
+      {iframeDiagnostic && <aside className="iframe-diagnostic" aria-live="polite"><strong>iframe 诊断：EPUB 脚本已禁用</strong><span>touchstart {iframeDiagnosticEvents.touchstart ?? 0} · touchend {iframeDiagnosticEvents.touchend ?? 0}</span><span>selectionchange {iframeDiagnosticEvents.selectionchange ?? 0} · selected {iframeDiagnosticEvents.selected ?? 0} · poll {iframeDiagnosticEvents["selection-poll"] ?? 0}</span><small>此模式只记录事件，不翻页、不弹出笔记栏。</small></aside>}
 
       {tocOpen && (mobileReader
         ? <MobileTocSheet bookTitle={book.title} items={flattenToc(toc)} currentHref={chapterHrefRef.current} currentChapter={chapter} onClose={() => setTocOpen(false)} onSelect={(item) => void goTo(item.href, item.label)} />

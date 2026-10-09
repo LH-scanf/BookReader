@@ -5,7 +5,6 @@ export const mobileResumeTolerance = 0.005;
 export type ReaderBootstrapIdentity = {
   bookId: string;
   readingMode: ReadingMode;
-  allowScriptedContent: boolean;
   iframeDiagnostic: boolean;
   iosWeb: boolean;
   mobileReader: boolean;
@@ -16,7 +15,6 @@ export function createReaderBootstrapKey(identity: ReaderBootstrapIdentity) {
   return JSON.stringify([
     identity.bookId,
     identity.readingMode,
-    identity.allowScriptedContent,
     identity.iframeDiagnostic,
     identity.iosWeb,
     identity.mobileReader,

@@ -34,14 +34,28 @@ describe("reader UI helpers", () => {
 
   it("keeps following spine documents available in scroll mode", () => {
     expect(createRenditionSettings("scroll")).toEqual({
-      flow: "scrolled-continuous", overflow: "scroll", manager: "continuous", infinite: true,
+      allowScriptedContent: false, flow: "scrolled-continuous", overflow: "scroll", manager: "continuous", infinite: true,
     });
     expect(createRenditionSettings("scroll", false, false)).toEqual({
-      flow: "scrolled-doc", overflow: "hidden", manager: "default", infinite: false,
+      allowScriptedContent: false, flow: "scrolled-doc", overflow: "hidden", manager: "default", infinite: false,
     });
     expect(createRenditionSettings("paged")).toEqual({
-      flow: "paginated", overflow: "hidden", manager: "default", infinite: false,
+      allowScriptedContent: false, flow: "paginated", overflow: "hidden", manager: "default", infinite: false,
     });
+  });
+
+  it("keeps EPUB iframe scripts disabled with the former diagnostic URL in every reader layout", () => {
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, "", "/?epubIframeDiagnostic=true");
+    try {
+      expect([
+        createRenditionSettings("paged"),
+        createRenditionSettings("scroll"),
+        createRenditionSettings("scroll", false, false),
+      ].map((settings) => settings.allowScriptedContent)).toEqual([false, false, false]);
+    } finally {
+      window.history.replaceState(null, "", previousUrl);
+    }
   });
 
   it("moves a mobile chapter cover into its separate prose spine without skipping ordinary entries", () => {

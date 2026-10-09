@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "build:desktop": "tsc && vite build --mode desktop",
     "test:desktop-bundle": "npm run build:desktop && node scripts/assert-desktop-bundle-isolation.mjs",
+    "test:epub-sandbox": "npm run build && node scripts/assert-epub-production-sandbox.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
