@@ -7,3 +7,4 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+  Content-Security-Policy-Report-Only: default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'sha256-4AQouRN7v2bh0cpROL0bY1GYMiwYwgMn3w91uis2oho='; script-src-attr 'none'; style-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; font-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' blob: https://login.microsoftonline.com https://login.live.com https://graph.microsoft.com https://*.1drv.com https://*.sharepoint.com https://*.blob.core.windows.net https://*.livefilestore.com https://*.storage.live.com https://*.onedrive.live.com; frame-src 'self' blob: data: https://login.microsoftonline.com https://login.live.com; worker-src 'self' blob:; manifest-src 'self'; form-action 'self' https://login.microsoftonline.com https://login.live.com; frame-ancestors 'self'
